@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
@@ -163,9 +163,9 @@ def page_overview(model, filtros):
     col1, col2 = st.columns([1.1, 1])
     with col1:
         mode = st.radio("Distribuicao racial", ["Quantidade", "Percentual"], horizontal=True)
-        st.plotly_chart(charts.bar_distribution(model["race_population"], "Cor_Raca", percent=mode == "Percentual"), use_container_width=True)
+        st.plotly_chart(charts.bar_distribution(model["race_population"], "Cor_Raca", percent=mode == "Percentual"), width="stretch")
     with col2:
-        st.plotly_chart(charts.age_pyramid(model["demo_age_sex"]), use_container_width=True)
+        st.plotly_chart(charts.age_pyramid(model["demo_age_sex"]), width="stretch")
 
 
 def page_municipios(model):
@@ -177,12 +177,12 @@ def page_municipios(model):
     table = idr.merge(rep[["CD_MUN", "Percentual"]].rename(columns={"Percentual": "Representatividade feminina"}), on="CD_MUN", how="left")
     table = table.merge(jovens[["CD_MUN", "Percentual"]].rename(columns={"Percentual": "Jovens"}), on="CD_MUN", how="left")
     table = table.merge(idosos[["CD_MUN", "Percentual"]].rename(columns={"Percentual": "Idosos"}), on="CD_MUN", how="left")
-    st.plotly_chart(charts.horizontal_ranking(table, "Municipio", "IDR", "Ranking de diversidade racial municipal"), use_container_width=True)
-    st.dataframe(table, use_container_width=True, hide_index=True)
+    st.plotly_chart(charts.horizontal_ranking(table, "Municipio", "IDR", "Ranking de diversidade racial municipal"), width="stretch")
+    st.dataframe(table, width="stretch", hide_index=True)
     selected = st.selectbox("Drill-down para bairros", [""] + sorted_options(model["bairro"]["NM_MUN"]))
     if selected:
         bairros = model["bairro"][model["bairro"]["NM_MUN"].eq(selected)].sort_values("populacao_total", ascending=False)
-        st.dataframe(bairros[["NM_MUN", "NM_BAIRRO", "populacao_total", "AREA_KM2"]], use_container_width=True, hide_index=True)
+        st.dataframe(bairros[["NM_MUN", "NM_BAIRRO", "populacao_total", "AREA_KM2"]], width="stretch", hide_index=True)
 
 
 def page_bairros(model):
@@ -194,19 +194,19 @@ def page_bairros(model):
     table = idr.merge(rep[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Representatividade feminina"}), on="CD_BAIRRO", how="left")
     table = table.merge(jovens[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Jovens"}), on="CD_BAIRRO", how="left")
     table = table.merge(idosos[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Idosos"}), on="CD_BAIRRO", how="left")
-    st.plotly_chart(charts.horizontal_ranking(table, "NM_BAIRRO", "Populacao", "Bairros mais populosos"), use_container_width=True)
-    st.dataframe(table, use_container_width=True, hide_index=True)
+    st.plotly_chart(charts.horizontal_ranking(table, "NM_BAIRRO", "Populacao", "Bairros mais populosos"), width="stretch")
+    st.dataframe(table, width="stretch", hide_index=True)
 
 
 def page_demography(model):
     st.title("Demografia")
     col1, col2 = st.columns(2)
     with col1:
-        st.plotly_chart(charts.age_pyramid(model["demo_age_sex"], "Piramide etaria por sexo"), use_container_width=True)
+        st.plotly_chart(charts.age_pyramid(model["demo_age_sex"], "Piramide etaria por sexo"), width="stretch")
     with col2:
-        st.plotly_chart(charts.line_or_bar_age_by_race(model["race_age"]), use_container_width=True)
+        st.plotly_chart(charts.line_or_bar_age_by_race(model["race_age"]), width="stretch")
     age = model["demo_age"].groupby("Faixa_Etaria", dropna=False)["valor"].sum().reset_index()
-    st.dataframe(age, use_container_width=True, hide_index=True)
+    st.dataframe(age, width="stretch", hide_index=True)
 
 
 def page_diversity(model):
@@ -215,11 +215,11 @@ def page_diversity(model):
     idr_mun = metrics.calcular_idr(model["race_population"], "municipio")
     col1, col2 = st.columns(2)
     with col1:
-        st.plotly_chart(charts.scatter_diversity_population(idr_bairro, "NM_BAIRRO"), use_container_width=True)
+        st.plotly_chart(charts.scatter_diversity_population(idr_bairro, "NM_BAIRRO"), width="stretch")
     with col2:
-        st.plotly_chart(charts.bar_distribution(model["race_population"], "Cor_Raca", percent=True, title="Composicao racial"), use_container_width=True)
+        st.plotly_chart(charts.bar_distribution(model["race_population"], "Cor_Raca", percent=True, title="Composicao racial"), width="stretch")
     st.subheader("Municipios com maior diversidade")
-    st.dataframe(idr_mun, use_container_width=True, hide_index=True)
+    st.dataframe(idr_mun, width="stretch", hide_index=True)
 
 
 def page_responsibles(model):
@@ -228,13 +228,13 @@ def page_responsibles(model):
     indig = metrics.ranking_responsaveis_indigenas_40mais(model["responsible_race_age"])
     col1, col2 = st.columns(2)
     with col1:
-        st.plotly_chart(charts.bar_distribution(model["responsible_race_sex"], "Sexo", title="Responsaveis por sexo"), use_container_width=True)
+        st.plotly_chart(charts.bar_distribution(model["responsible_race_sex"], "Sexo", title="Responsaveis por sexo"), width="stretch")
     with col2:
-        st.plotly_chart(charts.bar_distribution(model["responsible_race"], "Cor_Raca", title="Responsaveis por cor/raca"), use_container_width=True)
+        st.plotly_chart(charts.bar_distribution(model["responsible_race"], "Cor_Raca", title="Responsaveis por cor/raca"), width="stretch")
     st.subheader("Representatividade feminina por cor/raca")
-    st.dataframe(rep, use_container_width=True, hide_index=True)
+    st.dataframe(rep, width="stretch", hide_index=True)
     st.subheader("Responsaveis indigenas acima de 40 anos")
-    st.dataframe(indig, use_container_width=True, hide_index=True)
+    st.dataframe(indig, width="stretch", hide_index=True)
 
 
 def page_map(model):
@@ -253,18 +253,18 @@ def page_map(model):
     if fig is None:
         st.info("Mapa indisponivel neste ambiente. Instale geopandas e use a malha BA_bairros_CD2022 para visualizar bairros da Bahia.")
     else:
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
 
 def page_quality(profile, treatment_log, inconsistencies, dictionary):
     st.title("Qualidade dos Dados")
-    st.dataframe(profile, use_container_width=True, hide_index=True)
+    st.dataframe(profile, width="stretch", hide_index=True)
     st.subheader("Tratamentos registrados")
-    st.dataframe(treatment_log, use_container_width=True, hide_index=True)
+    st.dataframe(treatment_log, width="stretch", hide_index=True)
     st.subheader("Validacoes")
-    st.dataframe(inconsistencies, use_container_width=True, hide_index=True)
+    st.dataframe(inconsistencies, width="stretch", hide_index=True)
     st.subheader("Dicionario")
-    st.dataframe(dictionary.head(300), use_container_width=True, hide_index=True)
+    st.dataframe(dictionary.head(300), width="stretch", hide_index=True)
 
 
 def page_exports(model, filtros):

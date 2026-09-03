@@ -4,6 +4,19 @@ import pandas as pd
 
 from . import config
 
+FACT_GEO_COLUMNS = ["CD_MUN", "NM_MUN", "CD_BAIRRO", "NM_BAIRRO"]
+
+
+def _optimize_fact(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    result = df.copy()
+    if "valor" in result.columns:
+        result["valor"] = pd.to_numeric(result["valor"], errors="coerce").fillna(0).astype("int32")
+    for col in result.select_dtypes(include=["object", "string"]).columns:
+        result[col] = result[col].astype("category")
+    return result
+
 
 def _melt_mapping(
     source: pd.DataFrame,
@@ -12,7 +25,7 @@ def _melt_mapping(
     extra_names: tuple[str, ...] = (),
 ) -> pd.DataFrame:
     rows = []
-    base_cols = [col for col in config.GEO_COLUMNS if col in source.columns]
+    base_cols = [col for col in FACT_GEO_COLUMNS if col in source.columns]
     for key, col in mapping.items():
         if col not in source.columns:
             continue
@@ -24,7 +37,7 @@ def _melt_mapping(
         rows.append(piece)
     if not rows:
         return pd.DataFrame()
-    return pd.concat(rows, ignore_index=True)
+    return _optimize_fact(pd.concat(rows, ignore_index=True))
 
 
 def build_model(cleaned: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
@@ -55,6 +68,8 @@ def build_model(cleaned: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
         if old in demo.columns:
             bairro = bairro.merge(demo[["CD_BAIRRO", old]], on="CD_BAIRRO", how="left")
             bairro = bairro.rename(columns={old: new})
+    for col in bairro.select_dtypes(include=["object", "string"]).columns:
+        bairro[col] = bairro[col].astype("category")
 
     race_population = _melt_mapping(race, config.RACE_TOTAL_COLS, extra_names=("Cor_Raca",))
     race_sex = _melt_mapping(race, config.RACE_SEX_COLS, extra_names=("Sexo", "Cor_Raca"))
