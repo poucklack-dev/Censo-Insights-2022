@@ -32,6 +32,8 @@ st.markdown(
         padding: 16px 18px;
         background: #121A23;
         min-height: 112px;
+        margin-bottom: 20px;
+        box-sizing: border-box;
     }
     .metric-card .label { color: #9FB0C3; font-size: .86rem; }
     .metric-card .value { color: #F7FAFC; font-size: 1.7rem; font-weight: 700; margin-top: 8px; }
@@ -144,7 +146,7 @@ def summary_kpis(model: dict[str, pd.DataFrame], filtros: dict | None = None) ->
 def page_overview(model, filtros):
     st.title("Visao Geral")
     k = summary_kpis(model, filtros)
-    cols = st.columns(4)
+    cols = st.columns(4, gap="large")
     with cols[0]:
         metric_card("Populacao total", br_number(k["Populacao total"]))
     with cols[1]:
@@ -153,7 +155,7 @@ def page_overview(model, filtros):
         metric_card("Bairros", br_number(k["Bairros"]))
     with cols[3]:
         metric_card("IDR medio", br_number(k["IDR medio"], 3))
-    cols = st.columns(3)
+    cols = st.columns(3, gap="large")
     with cols[0]:
         metric_card("Representatividade feminina", br_percent(k["Representatividade feminina"]))
     with cols[1]:
