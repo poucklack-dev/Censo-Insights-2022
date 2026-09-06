@@ -301,6 +301,8 @@ def page_about():
         """
         Projeto analitico em Python para agregados do Censo 2022 por bairros.
 
+        **Desenvolvido por Emanuel Sousa Vasconcellos Lima.**
+
         A modelagem usa `CD_BAIRRO` como chave principal, preserva os arquivos originais e cria fatos derivados para populacao por idade/sexo, populacao por cor/raca, responsaveis por sexo/cor/raca e responsaveis por faixa etaria.
 
         O IDR e calculado pelo indice de Simpson normalizado: `1 - soma(p_i^2)`, reescalado para o intervalo de 0 a 1 conforme o numero de categorias observadas. Como nao ha formula oficial de IDR nos arquivos fornecidos, a decisao metodologica fica explicita no codigo e na documentacao.
@@ -308,6 +310,8 @@ def page_about():
         A idade media de responsaveis e uma estimativa por pontos medios de faixas. Classes abertas usam ponto medio metodologico documentado, nao idade individual inventada.
 
         A malha geografica disponivel e da Bahia; por isso o mapa mostra somente bairros com geometria correspondente.
+
+        **Licenca:** este projeto e distribuido sob a Licenca MIT. Consulte o arquivo `LICENSE` para conhecer os termos.
         """
     )
 

@@ -2,6 +2,8 @@
 
 Aplicacao analitica em Python para explorar agregados do Censo 2022 por bairros, com ETL, modelagem, indicadores, rankings, storytelling, mapa quando houver geometria e exportacao de resultados.
 
+Desenvolvido por **Emanuel Sousa Vasconcellos Lima**.
+
 ## Objetivo
 
 Transformar os arquivos de agregados por bairros em um produto de analytics interativo, preservando os dados brutos e criando uma camada tratada para analise executiva e tecnica.
@@ -136,3 +138,7 @@ A aplicacao permite baixar:
 ## Observacoes
 
 A malha geografica fornecida e da Bahia (`BA_bairros_CD2022`). O mapa utiliza geometria real quando `geopandas` esta instalado e quando o bairro filtrado existe na malha. Nenhuma coordenada e inventada.
+
+## Licenca
+
+Este projeto e distribuido sob a [Licenca MIT](LICENSE). Copyright (c) 2026 Emanuel Sousa Vasconcellos Lima.
