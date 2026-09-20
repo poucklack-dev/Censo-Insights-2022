@@ -1,11 +1,18 @@
 ﻿from __future__ import annotations
 
 import pandas as pd
+import numpy as np
 import streamlit as st
 
 from src import charts, metrics
 from src.data_cleaning import clean_raw_tables, detect_inconsistencies
-from src.data_loader import load_dictionary, load_raw_tables
+from src.data_loader import (
+    load_dictionary,
+    load_processed_audit_tables,
+    load_processed_model,
+    load_raw_tables,
+    processed_model_available,
+)
 from src.exports import csv_bytes, excel_report, pdf_insights
 from src.filters import filter_frame, sorted_options
 from src.insights import all_insights
@@ -52,6 +59,11 @@ st.markdown(
 
 @st.cache_data(show_spinner="Carregando e tratando dados censitarios...")
 def load_project():
+    if processed_model_available():
+        model = load_processed_model()
+        treatment_log, profile, inconsistencies = load_processed_audit_tables()
+        dictionary = load_dictionary()
+        return model, treatment_log, profile, inconsistencies, dictionary
     raw = load_raw_tables()
     cleaned, treatment_log, profile = clean_raw_tables(raw)
     model = build_model(cleaned)
@@ -71,6 +83,7 @@ def filtered_model(model: dict[str, pd.DataFrame], filtros: dict) -> dict[str, p
     return {
         name: filter_frame(
             df,
+            ufs=filtros["ufs"],
             municipios=filtros["municipios"],
             bairros=filtros["bairros"],
             sexos=filtros["sexos"],
@@ -85,13 +98,35 @@ def sidebar_filters(model: dict[str, pd.DataFrame]) -> dict:
     bairro = model["bairro"]
     st.sidebar.title("Censo 2022")
     st.sidebar.caption("Agregados por bairros")
-    municipios = st.sidebar.multiselect("Municipio", sorted_options(bairro["NM_MUN"]))
-    bairro_base = bairro[bairro["NM_MUN"].isin(municipios)] if municipios else bairro
-    bairros = st.sidebar.multiselect("Bairro", sorted_options(bairro_base["NM_BAIRRO"]))
+    uf_labels = bairro.drop_duplicates("CD_UF").set_index("CD_UF")["NM_UF"].astype(str).to_dict()
+    ufs = st.sidebar.multiselect(
+        "UF", sorted(uf_labels), format_func=lambda code: f"{uf_labels[code]} ({code})"
+    )
+    mun_base = bairro[bairro["CD_UF"].astype("string").isin(ufs)] if ufs else bairro
+    mun_labels = (
+        mun_base.drop_duplicates("CD_MUN").set_index("CD_MUN")["NM_MUN"].astype(str).to_dict()
+    )
+    municipios = st.sidebar.multiselect(
+        "Municipio",
+        sorted(mun_labels),
+        format_func=lambda code: f"{mun_labels[code]} ({code})",
+    )
+    bairro_base = (
+        mun_base[mun_base["CD_MUN"].astype("string").isin(municipios)] if municipios else mun_base
+    )
+    bairro_labels = {
+        str(row.CD_BAIRRO): f"{row.NM_BAIRRO} — {row.NM_MUN} ({row.CD_BAIRRO})"
+        for row in bairro_base.itertuples()
+    }
+    bairros = st.sidebar.multiselect(
+        "Bairro",
+        sorted(bairro_labels),
+        format_func=lambda code: bairro_labels[code],
+    )
     sexos = st.sidebar.multiselect("Sexo", ["Masculino", "Feminino"])
     faixas = st.sidebar.multiselect(
         "Faixa etaria",
-        ["0 a 14 anos", "15 a 29 anos", "30 a 39 anos", "40 a 59 anos", "60 anos ou mais"],
+        ["0 a 14 anos", "15 a 29 anos", "30 a 59 anos", "60 anos ou mais"],
     )
     racas = st.sidebar.multiselect("Cor/raca", ["Branca", "Preta", "Amarela", "Parda", "Indigena"])
     page = st.sidebar.radio(
@@ -110,7 +145,7 @@ def sidebar_filters(model: dict[str, pd.DataFrame]) -> dict:
             "Sobre o Projeto",
         ],
     )
-    return {"municipios": municipios, "bairros": bairros, "sexos": sexos, "faixas": faixas, "racas": racas, "page": page}
+    return {"ufs": ufs, "municipios": municipios, "bairros": bairros, "sexos": sexos, "faixas": faixas, "racas": racas, "page": page}
 
 
 def summary_kpis(model: dict[str, pd.DataFrame], filtros: dict | None = None) -> dict[str, float]:
@@ -118,12 +153,18 @@ def summary_kpis(model: dict[str, pd.DataFrame], filtros: dict | None = None) ->
     has_sex = bool(filtros.get("sexos"))
     has_age = bool(filtros.get("faixas"))
     has_race = bool(filtros.get("racas"))
-    if has_sex and has_race and not has_age:
+    if has_sex and has_age and has_race:
+        pop = np.nan
+    elif has_sex and has_race:
         pop = model["race_sex"]["valor"].sum()
-    elif has_sex and has_age and not has_race:
+    elif has_sex and has_age:
         pop = model["demo_age_sex"]["valor"].sum()
-    elif has_race or has_age:
+    elif has_race and has_age:
         pop = model["race_age"]["valor"].sum()
+    elif has_race:
+        pop = model["race_population"]["valor"].sum()
+    elif has_age:
+        pop = model["demo_age"]["valor"].sum()
     elif has_sex:
         pop = model["demo_age_sex"]["valor"].sum()
     else:
@@ -145,10 +186,15 @@ def summary_kpis(model: dict[str, pd.DataFrame], filtros: dict | None = None) ->
 
 def page_overview(model, filtros):
     st.title("Visao Geral")
+    if filtros.get("sexos") and filtros.get("faixas") and filtros.get("racas"):
+        st.warning(
+            "Nao existe uma tabela publicada com o cruzamento simultaneo sexo × idade × cor/raca; "
+            "o KPI populacional fica indisponivel para evitar um resultado enganoso."
+        )
     k = summary_kpis(model, filtros)
     cols = st.columns(4, gap="large")
     with cols[0]:
-        metric_card("Populacao total", br_number(k["Populacao total"]))
+        metric_card("Populacao coberta pelos bairros da base", br_number(k["Populacao total"]))
     with cols[1]:
         metric_card("Municipios", br_number(k["Municipios"]))
     with cols[2]:
@@ -176,9 +222,9 @@ def page_municipios(model):
     rep = metrics.representatividade_feminina(model["responsible_race_sex"], ["CD_MUN", "NM_MUN"])
     jovens = metrics.proporcao_jovens(model["demo_age"], ["CD_MUN", "NM_MUN"])
     idosos = metrics.proporcao_idosos(model["demo_age"], ["CD_MUN", "NM_MUN"])
-    table = idr.merge(rep[["CD_MUN", "Percentual"]].rename(columns={"Percentual": "Representatividade feminina"}), on="CD_MUN", how="left")
-    table = table.merge(jovens[["CD_MUN", "Percentual"]].rename(columns={"Percentual": "Jovens"}), on="CD_MUN", how="left")
-    table = table.merge(idosos[["CD_MUN", "Percentual"]].rename(columns={"Percentual": "Idosos"}), on="CD_MUN", how="left")
+    table = idr.merge(rep[["CD_MUN", "Percentual"]].rename(columns={"Percentual": "Representatividade feminina"}), on="CD_MUN", how="left", validate="one_to_one")
+    table = table.merge(jovens[["CD_MUN", "Percentual"]].rename(columns={"Percentual": "Jovens"}), on="CD_MUN", how="left", validate="one_to_one")
+    table = table.merge(idosos[["CD_MUN", "Percentual"]].rename(columns={"Percentual": "Idosos"}), on="CD_MUN", how="left", validate="one_to_one")
     st.plotly_chart(charts.horizontal_ranking(table, "Municipio", "IDR", "Ranking de diversidade racial municipal"), width="stretch")
     st.dataframe(table, width="stretch", hide_index=True)
     selected = st.selectbox("Drill-down para bairros", [""] + sorted_options(model["bairro"]["NM_MUN"]))
@@ -193,9 +239,9 @@ def page_bairros(model):
     rep = metrics.representatividade_feminina(model["responsible_race_sex"], ["CD_BAIRRO", "NM_BAIRRO", "NM_MUN"])
     jovens = metrics.proporcao_jovens(model["demo_age"], ["CD_BAIRRO", "NM_BAIRRO", "NM_MUN"])
     idosos = metrics.proporcao_idosos(model["demo_age"], ["CD_BAIRRO", "NM_BAIRRO", "NM_MUN"])
-    table = idr.merge(rep[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Representatividade feminina"}), on="CD_BAIRRO", how="left")
-    table = table.merge(jovens[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Jovens"}), on="CD_BAIRRO", how="left")
-    table = table.merge(idosos[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Idosos"}), on="CD_BAIRRO", how="left")
+    table = idr.merge(rep[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Representatividade feminina"}), on="CD_BAIRRO", how="left", validate="one_to_one")
+    table = table.merge(jovens[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Jovens"}), on="CD_BAIRRO", how="left", validate="one_to_one")
+    table = table.merge(idosos[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Idosos"}), on="CD_BAIRRO", how="left", validate="one_to_one")
     st.plotly_chart(charts.horizontal_ranking(table, "NM_BAIRRO", "Populacao", "Bairros mais populosos"), width="stretch")
     st.dataframe(table, width="stretch", hide_index=True)
 
@@ -246,10 +292,10 @@ def page_map(model):
     jovens = metrics.proporcao_jovens(model["demo_age"], ["CD_BAIRRO"])
     idosos = metrics.proporcao_idosos(model["demo_age"], ["CD_BAIRRO"])
     indicators = model["bairro"][["CD_BAIRRO", "NM_BAIRRO", "NM_MUN", "populacao_total"]].rename(columns={"populacao_total": "Populacao"})
-    indicators = indicators.merge(idr[["CD_BAIRRO", "IDR"]], on="CD_BAIRRO", how="left")
-    indicators = indicators.merge(rep[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Representatividade feminina"}), on="CD_BAIRRO", how="left")
-    indicators = indicators.merge(jovens[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Jovens"}), on="CD_BAIRRO", how="left")
-    indicators = indicators.merge(idosos[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Idosos"}), on="CD_BAIRRO", how="left")
+    indicators = indicators.merge(idr[["CD_BAIRRO", "IDR"]], on="CD_BAIRRO", how="left", validate="one_to_one")
+    indicators = indicators.merge(rep[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Representatividade feminina"}), on="CD_BAIRRO", how="left", validate="one_to_one")
+    indicators = indicators.merge(jovens[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Jovens"}), on="CD_BAIRRO", how="left", validate="one_to_one")
+    indicators = indicators.merge(idosos[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Idosos"}), on="CD_BAIRRO", how="left", validate="one_to_one")
     indicator = st.selectbox("Indicador", ["Populacao", "IDR", "Representatividade feminina", "Jovens", "Idosos"])
     fig = build_choropleth(indicators, indicator)
     if fig is None:

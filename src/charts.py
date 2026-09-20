@@ -10,10 +10,10 @@ TEMPLATE = "plotly_dark"
 
 
 def bar_distribution(df: pd.DataFrame, category: str, value: str = "valor", percent: bool = False, title: str = ""):
-    grouped = df.groupby(category, dropna=False)[value].sum().reset_index()
+    grouped = df.groupby(category, dropna=False, observed=True)[value].sum(min_count=1).reset_index()
     y_col = value
     if percent:
-        total = grouped[value].sum()
+        total = grouped[value].sum(min_count=1)
         grouped["Percentual"] = grouped[value] / total * 100 if total else 0
         y_col = "Percentual"
     fig = px.bar(
@@ -40,13 +40,13 @@ def horizontal_ranking(df: pd.DataFrame, label: str, value: str, title: str, top
 
 def age_pyramid(demo_age_sex: pd.DataFrame, title: str = "Piramide etaria"):
     grouped = (
-        demo_age_sex.groupby(["Faixa_Etaria_Original", "Sexo"], dropna=False)["valor"]
-        .sum()
+        demo_age_sex.groupby(["Faixa_Etaria_Original", "Sexo"], dropna=False, observed=True)["valor"]
+        .sum(min_count=1)
         .reset_index()
     )
     order = list(config.DEMO_AGE_COLS.keys())
-    male = grouped[grouped["Sexo"].eq("Masculino")].set_index("Faixa_Etaria_Original")["valor"].reindex(order).fillna(0)
-    female = grouped[grouped["Sexo"].eq("Feminino")].set_index("Faixa_Etaria_Original")["valor"].reindex(order).fillna(0)
+    male = grouped[grouped["Sexo"].eq("Masculino")].set_index("Faixa_Etaria_Original")["valor"].reindex(order)
+    female = grouped[grouped["Sexo"].eq("Feminino")].set_index("Faixa_Etaria_Original")["valor"].reindex(order)
     fig = go.Figure()
     fig.add_bar(y=order, x=-male, orientation="h", name="Masculino", marker_color="#4C78A8")
     fig.add_bar(y=order, x=female, orientation="h", name="Feminino", marker_color="#F58518")
@@ -63,7 +63,7 @@ def age_pyramid(demo_age_sex: pd.DataFrame, title: str = "Piramide etaria"):
 
 
 def line_or_bar_age_by_race(race_age: pd.DataFrame):
-    grouped = race_age.groupby(["Faixa_Etaria", "Cor_Raca"], dropna=False)["valor"].sum().reset_index()
+    grouped = race_age.groupby(["Faixa_Etaria", "Cor_Raca"], dropna=False, observed=True)["valor"].sum(min_count=1).reset_index()
     fig = px.bar(
         grouped,
         x="Faixa_Etaria",
@@ -90,4 +90,3 @@ def scatter_diversity_population(idr_df: pd.DataFrame, label_col: str):
     )
     fig.update_layout(margin=dict(l=20, r=20, t=55, b=30))
     return fig
-

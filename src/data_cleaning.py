@@ -25,7 +25,18 @@ def clean_table(df: pd.DataFrame, name: str) -> tuple[pd.DataFrame, pd.DataFrame
     log_rows = []
     for col in cleaned.columns:
         if col.upper().startswith("V") or col == "AREA_KM2":
-            cleaned[col] = to_numeric(cleaned[col]).fillna(0)
+            original = cleaned[col].astype("string").str.strip()
+            suppressed = original.str.lower().eq("x")
+            cleaned[col] = to_numeric(cleaned[col])
+            if suppressed.any():
+                log_rows.append(
+                    {
+                        "tabela": name,
+                        "acao": "preservacao_valor_suprimido",
+                        "quantidade": int(suppressed.sum()),
+                        "motivo": f"Valores 'x' em {col} preservados como ausentes, nunca como zero.",
+                    }
+                )
         elif col.startswith("CD_"):
             cleaned[col] = cleaned[col].astype("string").map(normalize_key)
         else:
@@ -45,8 +56,18 @@ def clean_table(df: pd.DataFrame, name: str) -> tuple[pd.DataFrame, pd.DataFrame
         for cd_bairro, group in duplicate_part.groupby("CD_BAIRRO", dropna=False):
             row = {"CD_BAIRRO": cd_bairro}
             for col in numeric_cols:
-                values = group[col].dropna().unique()
-                row[col] = group[col].iloc[0] if len(values) <= 1 else group[col].sum()
+                if col in {"v0005", "v0006"} and "v0007" in group:
+                    valid = group[col].notna() & group["v0007"].notna()
+                    weights = group.loc[valid, "v0007"]
+                    row[col] = (
+                        (group.loc[valid, col] * weights).sum(min_count=1) / weights.sum(min_count=1)
+                        if valid.any() and weights.sum(min_count=1) > 0
+                        else group[col].mean()
+                    )
+                else:
+                    # The duplicate rows are territorial pieces of the same code.
+                    # Counts and area are additive even when the two values coincide.
+                    row[col] = group[col].sum(min_count=1)
             for col in text_cols:
                 row[col] = group[col].dropna().iloc[0] if group[col].notna().any() else pd.NA
             rows.append(row)
@@ -59,6 +80,15 @@ def clean_table(df: pd.DataFrame, name: str) -> tuple[pd.DataFrame, pd.DataFrame
                 "motivo": "Chave CD_BAIRRO repetida; valores numericos iguais foram preservados uma vez e valores distintos seriam somados.",
             }
         )
+        log_rows[-1]["motivo"] = (
+            "Chave repetida consolidada: contagens/area somadas; medias e percentuais "
+            "v0005/v0006 ponderados por domicilios ocupados; conflitos textuais registrados pela primeira ocorrencia."
+        )
+    for col in cleaned.columns:
+        if col.upper().startswith("V") and col.lower() not in {"v0005", "v0006"}:
+            numeric = pd.to_numeric(cleaned[col], errors="coerce")
+            if numeric.dropna().mod(1).eq(0).all():
+                cleaned[col] = numeric.astype("Int64")
     return cleaned, pd.DataFrame(log_rows)
 
 
@@ -103,9 +133,9 @@ def detect_inconsistencies(model: dict[str, pd.DataFrame]) -> pd.DataFrame:
             }
         )
     if "race_population" in model:
-        race_total = model["race_population"].groupby("CD_BAIRRO")["valor"].sum()
+        race_total = model["race_population"].groupby("CD_BAIRRO")["valor"].sum(min_count=1)
         expected = bairro.set_index("CD_BAIRRO")["populacao_total"]
-        diff = (race_total.reindex(expected.index).fillna(0) - expected).abs()
+        diff = (race_total.reindex(expected.index) - expected).abs()
         checks.append(
             {
                 "validacao": "Soma cor/raca x populacao",

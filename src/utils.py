@@ -22,6 +22,24 @@ def remove_accents(value: object) -> str:
     )
 
 
+def classify_neighborhood_name(value: object) -> str:
+    """Diagnostic classification only; it never determines record validity."""
+    text = normalize_key(value)
+    if not text:
+        return "NULO"
+    if text.isnumeric():
+        return "NUMERICO"
+    if len(text) <= 4:
+        return "CURTO"
+    if any(char.isalpha() for char in text) and any(char.isdigit() for char in text):
+        return "ALFANUMERICO"
+    compact = re.sub(r"[^A-Za-zÀ-ÿ0-9]", "", text).lower()
+    repeated_block = re.fullmatch(r"(.{1,3})\1+", compact)
+    if len(compact) >= 4 and (len(set(compact)) <= 2 or repeated_block):
+        return "REPETITIVO"
+    return "NORMAL"
+
+
 def br_number(value: float | int | None, decimals: int = 0) -> str:
     if value is None or pd.isna(value):
         return "-"
@@ -36,7 +54,11 @@ def br_percent(value: float | int | None, decimals: int = 1) -> str:
 
 
 def to_numeric(series: pd.Series) -> pd.Series:
-    return pd.to_numeric(series.replace({".": pd.NA, "-": pd.NA, "": pd.NA}), errors="coerce")
+    """Parse published numbers without turning missing/suppressed values into zero."""
+    normalized = series.astype("string").str.strip().replace(
+        {".": pd.NA, "-": pd.NA, "": pd.NA, "x": pd.NA, "X": pd.NA}
+    )
+    return pd.to_numeric(normalized, errors="coerce")
 
 
 def dataframe_to_csv(df: pd.DataFrame) -> bytes:
@@ -50,4 +72,3 @@ def dataframe_to_excel(sheets: dict[str, pd.DataFrame]) -> bytes:
             safe_name = name[:31]
             sheet_df.to_excel(writer, sheet_name=safe_name, index=False)
     return output.getvalue()
-

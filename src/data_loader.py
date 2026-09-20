@@ -7,6 +7,18 @@ import pandas as pd
 
 from . import config
 
+MODEL_TABLES = (
+    "bairro",
+    "race_population",
+    "race_sex",
+    "race_age",
+    "responsible_race",
+    "responsible_race_sex",
+    "responsible_race_age",
+    "demo_age",
+    "demo_age_sex",
+)
+
 
 def _normalize_column_name(value: object) -> str:
     text = str(value).replace("�", "")
@@ -30,6 +42,46 @@ def load_raw_tables() -> dict[str, pd.DataFrame]:
     if missing:
         raise FileNotFoundError("Arquivos ausentes: " + ", ".join(missing))
     return {name: read_excel(path) for name, path in files.items()}
+
+
+def processed_model_available() -> bool:
+    return all(
+        (config.PROCESSED_DIR / f"{name}.parquet").exists()
+        or (config.PROCESSED_DIR / f"{name}.csv").exists()
+        for name in MODEL_TABLES
+    )
+
+
+def load_processed_model() -> dict[str, pd.DataFrame]:
+    """Load the compact modeled layer, preferring Parquet when available."""
+    model = {}
+    for name in MODEL_TABLES:
+        parquet_path = config.PROCESSED_DIR / f"{name}.parquet"
+        csv_path = config.PROCESSED_DIR / f"{name}.csv"
+        if parquet_path.exists():
+            model[name] = pd.read_parquet(parquet_path)
+        elif csv_path.exists():
+            frame = pd.read_csv(
+                csv_path,
+                sep=";",
+                decimal=",",
+                dtype={col: "string" for col in ["CD_UF", "CD_MUN", "CD_BAIRRO"]},
+                low_memory=False,
+            )
+            for col in frame.select_dtypes(include=["object", "string"]).columns:
+                frame[col] = frame[col].astype("category")
+            model[name] = frame
+        else:
+            raise FileNotFoundError(f"Tabela processada ausente: {name}")
+    return model
+
+
+def load_processed_audit_tables() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    def read(name: str) -> pd.DataFrame:
+        path = config.PROCESSED_DIR / f"{name}.csv"
+        return pd.read_csv(path, sep=";", decimal=",", encoding="utf-8-sig") if path.exists() else pd.DataFrame()
+
+    return read("treatment_log"), read("data_profile"), read("validations")
 
 
 def load_dictionary() -> pd.DataFrame:
@@ -60,4 +112,3 @@ def load_geodata():
     if "CD_BAIRRO" in gdf.columns:
         gdf["CD_BAIRRO"] = gdf["CD_BAIRRO"].astype(str)
     return gdf
-

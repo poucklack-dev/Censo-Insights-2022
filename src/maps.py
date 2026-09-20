@@ -10,7 +10,13 @@ def build_choropleth(indicators: pd.DataFrame, indicator_col: str):
     gdf = load_geodata()
     if gdf is None or indicator_col not in indicators.columns:
         return None
-    merged = gdf.merge(indicators, on="CD_BAIRRO", how="left", suffixes=("_geo", ""))
+    merged = gdf.merge(
+        indicators,
+        on="CD_BAIRRO",
+        how="left",
+        suffixes=("_geo", ""),
+        validate="one_to_one",
+    )
     if merged.empty:
         return None
     if "NM_BAIRRO" not in merged.columns and "NM_BAIRRO_geo" in merged.columns:

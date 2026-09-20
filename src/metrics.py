@@ -7,7 +7,7 @@ from . import config
 
 
 def safe_divide(numerator: float, denominator: float) -> float:
-    return float(numerator / denominator) if denominator else 0.0
+    return float(numerator / denominator) if denominator else float("nan")
 
 
 def calcular_idr(df: pd.DataFrame, nivel: str = "bairro") -> pd.DataFrame:
@@ -18,9 +18,11 @@ def calcular_idr(df: pd.DataFrame, nivel: str = "bairro") -> pd.DataFrame:
         raise ValueError("Nivel invalido ou ausente nos dados.")
     if df.empty:
         return pd.DataFrame(columns=group_cols + ["IDR", "categorias", "Populacao"])
-    grouped = df.groupby(group_cols + ["Cor_Raca"], dropna=False)["valor"].sum().reset_index()
-    totals = grouped.groupby(group_cols)["valor"].transform("sum")
-    grouped["proporcao"] = np.where(totals > 0, grouped["valor"] / totals, 0)
+    grouped = df.groupby(group_cols + ["Cor_Raca"], dropna=False, observed=True)["valor"].sum(min_count=1).reset_index()
+    totals = grouped.groupby(group_cols, observed=True)["valor"].transform(lambda s: s.sum(min_count=1))
+    grouped["proporcao"] = (
+        grouped["valor"].astype("Float64").div(totals.astype("Float64")).where(totals > 0, 0)
+    )
     k = grouped[grouped["valor"] > 0].groupby(group_cols)["Cor_Raca"].nunique().rename("categorias")
     simpson = grouped.groupby(group_cols)["proporcao"].apply(lambda s: 1 - np.square(s).sum())
     result = pd.concat([simpson.rename("IDR"), k], axis=1).reset_index()
@@ -29,8 +31,8 @@ def calcular_idr(df: pd.DataFrame, nivel: str = "bairro") -> pd.DataFrame:
         result["IDR"] / (1 - 1 / result["categorias"]),
         0,
     )
-    population = df.groupby(group_cols)["valor"].sum().rename("Populacao").reset_index()
-    result = result.merge(population, on=group_cols, how="left")
+    population = df.groupby(group_cols, observed=True)["valor"].sum(min_count=1).rename("Populacao").reset_index()
+    result = result.merge(population, on=group_cols, how="left", validate="one_to_one")
     return result.sort_values("IDR", ascending=False)
 
 
@@ -44,15 +46,17 @@ def percent_by_group(df: pd.DataFrame, group_cols: list[str], mask: pd.Series) -
     if df.empty:
         return pd.DataFrame(columns=group_cols + ["Total", "Quantidade", "Percentual"])
     if not group_cols:
-        total = df["valor"].sum()
-        quantity = df.loc[mask, "valor"].sum()
+        total = df["valor"].sum(min_count=1)
+        quantity = df.loc[mask, "valor"].sum(min_count=1)
         return pd.DataFrame(
             [{"Total": total, "Quantidade": quantity, "Percentual": safe_divide(quantity, total) * 100}]
         )
-    base = df.groupby(group_cols, dropna=False)["valor"].sum().rename("Total")
-    subset = df[mask].groupby(group_cols, dropna=False)["valor"].sum().rename("Quantidade")
-    result = pd.concat([base, subset], axis=1).fillna(0).reset_index()
-    result["Percentual"] = np.where(result["Total"] > 0, result["Quantidade"] / result["Total"] * 100, 0)
+    base = df.groupby(group_cols, dropna=False, observed=True)["valor"].sum(min_count=1).rename("Total")
+    subset = df[mask].groupby(group_cols, dropna=False, observed=True)["valor"].sum(min_count=1).rename("Quantidade")
+    result = pd.concat([base, subset], axis=1).reset_index()
+    result["Percentual"] = (
+        result["Quantidade"].div(result["Total"]).mul(100).where(result["Total"].gt(0))
+    )
     return result
 
 
@@ -95,7 +99,7 @@ def ranking_jovens_pardos(race_age: pd.DataFrame) -> pd.DataFrame:
 
 
 def predominant_race(race_population: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
-    grouped = race_population.groupby(group_cols + ["Cor_Raca"], dropna=False)["valor"].sum().reset_index()
+    grouped = race_population.groupby(group_cols + ["Cor_Raca"], dropna=False, observed=True)["valor"].sum(min_count=1).reset_index()
     idx = grouped.sort_values("valor", ascending=False).groupby(group_cols).head(1).index
     return grouped.loc[idx, group_cols + ["Cor_Raca"]].rename(columns={"Cor_Raca": "Grupo racial predominante"})
 
@@ -103,7 +107,7 @@ def predominant_race(race_population: pd.DataFrame, group_cols: list[str]) -> pd
 def ranking_municipios_diversidade(race_population: pd.DataFrame) -> pd.DataFrame:
     idr = calcular_idr(race_population, nivel="municipio")
     pred = predominant_race(race_population, ["CD_MUN", "NM_MUN"])
-    result = idr.merge(pred, on=["CD_MUN", "NM_MUN"], how="left")
+    result = idr.merge(pred, on=["CD_MUN", "NM_MUN"], how="left", validate="one_to_one")
     result = result.rename(columns={"NM_MUN": "Municipio"})
     result.insert(0, "Posicao", range(1, len(result) + 1))
     return result

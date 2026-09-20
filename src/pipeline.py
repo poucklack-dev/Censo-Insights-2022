@@ -17,6 +17,11 @@ def run_etl(save: bool = True) -> tuple[dict[str, pd.DataFrame], pd.DataFrame, p
         config.PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
         for name, df in model.items():
             df.to_csv(config.PROCESSED_DIR / f"{name}.csv", index=False, sep=";", decimal=",", encoding="utf-8-sig")
+            try:
+                df.to_parquet(config.PROCESSED_DIR / f"{name}.parquet", index=False, compression="zstd")
+            except (ImportError, ModuleNotFoundError):
+                # CSV remains the compatible fallback when no Parquet engine is installed.
+                pass
         treatment_log.to_csv(config.PROCESSED_DIR / "treatment_log.csv", index=False, sep=";", encoding="utf-8-sig")
         profile.to_csv(config.PROCESSED_DIR / "data_profile.csv", index=False, sep=";", encoding="utf-8-sig")
         inconsistencies.to_csv(config.PROCESSED_DIR / "validations.csv", index=False, sep=";", encoding="utf-8-sig")
@@ -25,4 +30,3 @@ def run_etl(save: bool = True) -> tuple[dict[str, pd.DataFrame], pd.DataFrame, p
 
 if __name__ == "__main__":
     run_etl(save=True)
-

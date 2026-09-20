@@ -3,8 +3,9 @@ from __future__ import annotations
 import pandas as pd
 
 from . import config
+from .utils import classify_neighborhood_name
 
-FACT_GEO_COLUMNS = ["CD_MUN", "NM_MUN", "CD_BAIRRO", "NM_BAIRRO"]
+FACT_GEO_COLUMNS = ["CD_UF", "NM_UF", "CD_MUN", "NM_MUN", "CD_BAIRRO", "NM_BAIRRO"]
 
 
 def _optimize_fact(df: pd.DataFrame) -> pd.DataFrame:
@@ -12,7 +13,11 @@ def _optimize_fact(df: pd.DataFrame) -> pd.DataFrame:
         return df
     result = df.copy()
     if "valor" in result.columns:
-        result["valor"] = pd.to_numeric(result["valor"], errors="coerce").fillna(0).astype("int32")
+        numeric = pd.to_numeric(result["valor"], errors="coerce")
+        non_integer = numeric.dropna().mod(1).ne(0)
+        if non_integer.any():
+            raise ValueError("Uma fato de contagem contem valores nao inteiros.")
+        result["valor"] = numeric.astype("Int32")
     for col in result.select_dtypes(include=["object", "string"]).columns:
         result[col] = result[col].astype("category")
     return result
@@ -44,10 +49,10 @@ def build_model(cleaned: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     basic = cleaned["basico"]
     geo_attrs = basic[[col for col in config.GEO_COLUMNS if col in basic.columns]].drop_duplicates("CD_BAIRRO")
     race = cleaned["cor_raca"].drop(columns=["NM_BAIRRO"], errors="ignore").merge(
-        geo_attrs, on="CD_BAIRRO", how="left"
+        geo_attrs, on="CD_BAIRRO", how="left", validate="one_to_one"
     )
     demo = cleaned["demografia"].drop(columns=["NM_BAIRRO"], errors="ignore").merge(
-        geo_attrs, on="CD_BAIRRO", how="left"
+        geo_attrs, on="CD_BAIRRO", how="left", validate="one_to_one"
     )
 
     bairro = basic.copy()
@@ -60,13 +65,16 @@ def build_model(cleaned: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
             "v0007": "domicilios_ocupados",
         }
     )
+    bairro["status_nome"] = bairro["NM_BAIRRO"].map(classify_neighborhood_name)
     for old, new in {
         "V01006": "pop_demografia_total",
         "V01007": "pop_masculina",
         "V01008": "pop_feminina",
     }.items():
         if old in demo.columns:
-            bairro = bairro.merge(demo[["CD_BAIRRO", old]], on="CD_BAIRRO", how="left")
+            bairro = bairro.merge(
+                demo[["CD_BAIRRO", old]], on="CD_BAIRRO", how="left", validate="one_to_one"
+            )
             bairro = bairro.rename(columns={old: new})
     for col in bairro.select_dtypes(include=["object", "string"]).columns:
         bairro[col] = bairro[col].astype("category")
