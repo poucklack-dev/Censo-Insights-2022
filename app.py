@@ -22,7 +22,7 @@ from src.utils import br_number, br_percent
 
 
 st.set_page_config(
-    page_title="Analytics Censo 2022",
+    page_title="Análises do Censo 2022",
     page_icon="",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -100,7 +100,10 @@ def sidebar_filters(model: dict[str, pd.DataFrame]) -> dict:
     st.sidebar.caption("Agregados por bairros")
     uf_labels = bairro.drop_duplicates("CD_UF").set_index("CD_UF")["NM_UF"].astype(str).to_dict()
     ufs = st.sidebar.multiselect(
-        "UF", sorted(uf_labels), format_func=lambda code: f"{uf_labels[code]} ({code})"
+        "UF",
+        sorted(uf_labels),
+        format_func=lambda code: f"{uf_labels[code]} ({code})",
+        placeholder="Opções",
     )
     mun_base = bairro[bairro["CD_UF"].astype("string").isin(ufs)] if ufs else bairro
     mun_labels = (
@@ -110,6 +113,7 @@ def sidebar_filters(model: dict[str, pd.DataFrame]) -> dict:
         "Municipio",
         sorted(mun_labels),
         format_func=lambda code: f"{mun_labels[code]} ({code})",
+        placeholder="Opções",
     )
     bairro_base = (
         mun_base[mun_base["CD_MUN"].astype("string").isin(municipios)] if municipios else mun_base
@@ -122,13 +126,21 @@ def sidebar_filters(model: dict[str, pd.DataFrame]) -> dict:
         "Bairro",
         sorted(bairro_labels),
         format_func=lambda code: bairro_labels[code],
+        placeholder="Opções",
     )
-    sexos = st.sidebar.multiselect("Sexo", ["Masculino", "Feminino"])
+    sexos = st.sidebar.multiselect(
+        "Sexo", ["Masculino", "Feminino"], placeholder="Opções"
+    )
     faixas = st.sidebar.multiselect(
         "Faixa etaria",
         ["0 a 14 anos", "15 a 29 anos", "30 a 59 anos", "60 anos ou mais"],
+        placeholder="Opções",
     )
-    racas = st.sidebar.multiselect("Cor/raca", ["Branca", "Preta", "Amarela", "Parda", "Indigena"])
+    racas = st.sidebar.multiselect(
+        "Cor/raca",
+        ["Branca", "Preta", "Amarela", "Parda", "Indigena"],
+        placeholder="Opções",
+    )
     page = st.sidebar.radio(
         "Pagina",
         [
@@ -139,7 +151,7 @@ def sidebar_filters(model: dict[str, pd.DataFrame]) -> dict:
             "Diversidade Racial",
             "Responsaveis",
             "Mapa",
-            "Insights e Storytelling",
+            "Análises e Narrativa",
             "Qualidade dos Dados",
             "Exportacao",
             "Sobre o Projeto",
@@ -194,7 +206,7 @@ def page_overview(model, filtros):
     k = summary_kpis(model, filtros)
     cols = st.columns(4, gap="large")
     with cols[0]:
-        metric_card("Populacao coberta pelos bairros da base", br_number(k["Populacao total"]))
+        metric_card("População Abrangida pelos Bairros", br_number(k["Populacao total"]))
     with cols[1]:
         metric_card("Municipios", br_number(k["Municipios"]))
     with cols[2]:
@@ -227,7 +239,7 @@ def page_municipios(model):
     table = table.merge(idosos[["CD_MUN", "Percentual"]].rename(columns={"Percentual": "Idosos"}), on="CD_MUN", how="left", validate="one_to_one")
     st.plotly_chart(charts.horizontal_ranking(table, "Municipio", "IDR", "Ranking de diversidade racial municipal"), width="stretch")
     st.dataframe(table, width="stretch", hide_index=True)
-    selected = st.selectbox("Drill-down para bairros", [""] + sorted_options(model["bairro"]["NM_MUN"]))
+    selected = st.selectbox("Detalhamento por bairros", [""] + sorted_options(model["bairro"]["NM_MUN"]))
     if selected:
         bairros = model["bairro"][model["bairro"]["NM_MUN"].eq(selected)].sort_values("populacao_total", ascending=False)
         st.dataframe(bairros[["NM_MUN", "NM_BAIRRO", "populacao_total", "AREA_KM2"]], width="stretch", hide_index=True)
@@ -330,12 +342,12 @@ def page_exports(model, filtros):
         "Responsaveis": model["responsible_race_sex"],
     }
     st.download_button("Baixar dados filtrados CSV", csv_bytes(model["bairro"]), "dados_filtrados.csv", "text/csv")
-    st.download_button("Baixar relatorio Excel", excel_report(sheets), "relatorio_analytics.xlsx")
-    st.download_button("Baixar insights PDF", pdf_insights("Insights Censo 2022", insights), "insights.pdf", "application/pdf")
+    st.download_button("Baixar relatório Excel", excel_report(sheets), "relatorio_analises.xlsx")
+    st.download_button("Baixar análises em PDF", pdf_insights("Análises do Censo 2022", insights), "analises.pdf", "application/pdf")
 
 
 def page_storytelling(model):
-    st.title("Insights e Storytelling")
+    st.title("Análises e Narrativa")
     for insight in all_insights(model):
         st.markdown(f"<div class='note'>{insight}</div>", unsafe_allow_html=True)
         st.write("")
@@ -381,7 +393,7 @@ def main():
         page_responsibles(current)
     elif page == "Mapa":
         page_map(current)
-    elif page == "Insights e Storytelling":
+    elif page == "Análises e Narrativa":
         page_storytelling(current)
     elif page == "Qualidade dos Dados":
         page_quality(profile, treatment_log, inconsistencies, dictionary)
