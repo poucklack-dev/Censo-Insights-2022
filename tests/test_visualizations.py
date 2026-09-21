@@ -101,6 +101,44 @@ def test_map_requires_one_to_one_keys(monkeypatch):
         maps.build_choropleth(indicators, "IDR")
 
 
+@pytest.mark.parametrize(
+    "indicator",
+    ["Populacao", "IDR", "Representatividade feminina", "Jovens", "Idosos"],
+)
+def test_national_point_map_supports_all_indicators(monkeypatch, indicator):
+    points = pd.DataFrame(
+        {
+            "CD_BAIRRO": ["1", "2"],
+            "LATITUDE": [-12.0, -23.0],
+            "LONGITUDE": [-38.0, -46.0],
+        }
+    )
+    monkeypatch.setattr(maps, "load_neighborhood_points", lambda: points)
+    indicators = pd.DataFrame(
+        {
+            "CD_BAIRRO": pd.Series([1, 2], dtype="Int64"),
+            "NM_BAIRRO": ["Centro", "Norte"],
+            "NM_MUN": ["Cidade A", "Cidade B"],
+            "NM_UF": ["Bahia", "São Paulo"],
+            indicator: [10.0, 20.0],
+        }
+    )
+    fig = maps.build_point_map(indicators, indicator)
+    assert fig is not None
+    assert fig.data[0].type == "scattermap"
+    assert list(fig.data[0].lat) == [-12.0, -23.0]
+    assert list(fig.data[0].lon) == [-38.0, -46.0]
+
+
+def test_national_point_map_returns_none_without_match(monkeypatch):
+    points = pd.DataFrame(
+        {"CD_BAIRRO": ["1"], "LATITUDE": [-12.0], "LONGITUDE": [-38.0]}
+    )
+    monkeypatch.setattr(maps, "load_neighborhood_points", lambda: points)
+    indicators = pd.DataFrame({"CD_BAIRRO": ["999"], "IDR": [0.5]})
+    assert maps.build_point_map(indicators, "IDR") is None
+
+
 def test_repository_has_no_legacy_mapbox_api():
     source = (Path(__file__).parents[1] / "src" / "maps.py").read_text(encoding="utf-8")
     legacy_names = (

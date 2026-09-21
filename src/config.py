@@ -10,6 +10,7 @@ RACE_FILE = RAW_AGG_DIR / "Agregados_por_bairros_cor_ou_raca_BR.xlsx"
 DEMOGRAPHY_FILE = RAW_AGG_DIR / "Agregados_por_bairros_demografia_BR.xlsx"
 DICTIONARY_FILE = RAW_AGG_DIR / "dicionario_de_dados_agregados_por_setores_censitarios.xlsx"
 GEO_FILE = RAW_GEO_DIR / "BA_bairros_CD2022.shp"
+NEIGHBORHOOD_POINTS_FILE = RAW_GEO_DIR / "BR_bairros_pontos_CD2022.csv"
 
 KEY_COLUMNS = ["CD_BAIRRO", "NM_BAIRRO"]
 GEO_COLUMNS = [
@@ -208,4 +209,3 @@ AGE_MIDPOINT = {
     "40 a 59 anos": 49.5,
     "60 anos ou mais": 67.5,
 }
-

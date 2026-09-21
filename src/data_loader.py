@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unicodedata
+from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
@@ -112,3 +113,14 @@ def load_geodata():
     if "CD_BAIRRO" in gdf.columns:
         gdf["CD_BAIRRO"] = gdf["CD_BAIRRO"].astype(str)
     return gdf
+
+
+@lru_cache(maxsize=1)
+def load_neighborhood_points() -> pd.DataFrame | None:
+    """Load compact official representative points without polygon geometry."""
+    if not config.NEIGHBORHOOD_POINTS_FILE.exists():
+        return None
+    return pd.read_csv(
+        config.NEIGHBORHOOD_POINTS_FILE,
+        dtype={"CD_BAIRRO": "string"},
+    )

@@ -16,7 +16,7 @@ from src.data_loader import (
 from src.exports import csv_bytes, excel_report, pdf_insights
 from src.filters import filter_frame, sorted_options
 from src.insights import all_insights
-from src.maps import build_choropleth
+from src.maps import build_choropleth, build_point_map
 from src.modeling import build_model
 from src.utils import br_number, br_percent
 
@@ -312,18 +312,35 @@ def page_map(model):
     rep = metrics.representatividade_feminina(model["responsible_race_sex"], ["CD_BAIRRO"])
     jovens = metrics.proporcao_jovens(model["demo_age"], ["CD_BAIRRO"])
     idosos = metrics.proporcao_idosos(model["demo_age"], ["CD_BAIRRO"])
-    indicators = model["bairro"][["CD_BAIRRO", "NM_BAIRRO", "NM_MUN", "populacao_total"]].rename(columns={"populacao_total": "Populacao"})
+    indicator_columns = ["CD_BAIRRO", "NM_BAIRRO", "NM_MUN", "populacao_total"]
+    if "NM_UF" in model["bairro"].columns:
+        indicator_columns.insert(3, "NM_UF")
+    indicators = model["bairro"][indicator_columns].rename(columns={"populacao_total": "Populacao"})
     indicators = indicators.merge(idr[["CD_BAIRRO", "IDR"]], on="CD_BAIRRO", how="left", validate="one_to_one")
     indicators = indicators.merge(rep[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Representatividade feminina"}), on="CD_BAIRRO", how="left", validate="one_to_one")
     indicators = indicators.merge(jovens[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Jovens"}), on="CD_BAIRRO", how="left", validate="one_to_one")
     indicators = indicators.merge(idosos[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Idosos"}), on="CD_BAIRRO", how="left", validate="one_to_one")
     indicator = st.selectbox("Indicador", ["Populacao", "IDR", "Representatividade feminina", "Jovens", "Idosos"])
-    fig = build_choropleth(indicators, indicator)
-    if fig is None:
-        st.info(
-            "Não há malha geográfica disponível para os filtros selecionados. "
-            "Atualmente o projeto possui geometria detalhada de bairros da Bahia."
+    map_mode = st.radio(
+        "Cobertura geográfica",
+        ["Brasil — pontos representativos", "Bahia — limites oficiais"],
+        horizontal=True,
+    )
+    if map_mode == "Brasil — pontos representativos":
+        fig = build_point_map(indicators, indicator)
+        empty_message = "Não há coordenadas disponíveis para os filtros selecionados."
+        st.caption(
+            "Cada ponto fica dentro do polígono oficial do bairro no Censo 2022. "
+            "Os pontos representam localização, não o tamanho ou o limite territorial."
         )
+    else:
+        fig = build_choropleth(indicators, indicator)
+        empty_message = (
+            "Não há malha geográfica disponível para os filtros selecionados. "
+            "A visualização de limites detalhados está disponível para bairros da Bahia."
+        )
+    if fig is None:
+        st.info(empty_message)
     else:
         st.plotly_chart(fig, width="stretch")
 
