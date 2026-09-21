@@ -5,6 +5,7 @@ import pandas as pd
 import plotly.express as px
 
 from .data_loader import load_geodata, load_neighborhood_points
+from .presentation import DISPLAY_NAMES
 
 
 HOVER_COLUMNS = [
@@ -61,6 +62,7 @@ def build_point_map(indicators: pd.DataFrame, indicator_col: str):
         zoom=3.1,
         opacity=0.78,
         template="plotly_dark",
+        labels=DISPLAY_NAMES,
     )
     fig.update_traces(marker={"size": 7})
     fig.update_layout(margin=dict(l=0, r=0, t=20, b=0), height=660)
@@ -117,6 +119,7 @@ def build_choropleth(indicators: pd.DataFrame, indicator_col: str):
         zoom=5.2,
         opacity=0.72,
         template="plotly_dark",
+        labels=DISPLAY_NAMES,
     )
     fig.update_layout(margin=dict(l=0, r=0, t=20, b=0), height=660)
     return fig

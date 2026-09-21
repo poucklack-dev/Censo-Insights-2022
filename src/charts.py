@@ -6,6 +6,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 from . import config
+from .presentation import DISPLAY_NAMES
 
 TEMPLATE = "plotly_dark"
 
@@ -26,6 +27,7 @@ def bar_distribution(df: pd.DataFrame, category: str, value: str = "valor", perc
         template=TEMPLATE,
         title=title,
         text_auto=".2s",
+        labels=DISPLAY_NAMES,
     )
     fig.update_layout(showlegend=False, margin=dict(l=20, r=20, t=55, b=30))
     return fig
@@ -33,13 +35,22 @@ def bar_distribution(df: pd.DataFrame, category: str, value: str = "valor", perc
 
 def horizontal_ranking(df: pd.DataFrame, label: str, value: str, title: str, top: int = 15):
     plot_df = df.sort_values(value, ascending=False).head(top).sort_values(value)
-    fig = px.bar(plot_df, x=value, y=label, orientation="h", template=TEMPLATE, title=title, text=value)
+    fig = px.bar(
+        plot_df,
+        x=value,
+        y=label,
+        orientation="h",
+        template=TEMPLATE,
+        title=title,
+        text=value,
+        labels=DISPLAY_NAMES,
+    )
     fig.update_traces(texttemplate="%{x:.2f}", textposition="outside")
     fig.update_layout(margin=dict(l=20, r=20, t=55, b=30), yaxis_title=None)
     return fig
 
 
-def age_pyramid(demo_age_sex: pd.DataFrame, title: str = "Piramide etaria"):
+def age_pyramid(demo_age_sex: pd.DataFrame, title: str = "Pirâmide Etária"):
     grouped = (
         demo_age_sex.groupby(["Faixa_Etaria_Original", "Sexo"], dropna=False, observed=True)["valor"]
         .sum(min_count=1)
@@ -56,7 +67,7 @@ def age_pyramid(demo_age_sex: pd.DataFrame, title: str = "Piramide etaria"):
         title=title,
         barmode="relative",
         bargap=0.08,
-        xaxis_title="Populacao",
+        xaxis_title="População",
         yaxis_title=None,
         margin=dict(l=20, r=20, t=55, b=30),
     )
@@ -73,9 +84,10 @@ def line_or_bar_age_by_race(race_age: pd.DataFrame):
         barmode="group",
         color_discrete_map=config.RACE_COLORS,
         template=TEMPLATE,
-        title="Faixas etarias por cor/raca",
+        title="População por Faixa Etária e Cor ou Raça",
+        labels=DISPLAY_NAMES,
     )
-    fig.update_layout(margin=dict(l=20, r=20, t=55, b=30), xaxis_title=None, yaxis_title="Populacao")
+    fig.update_layout(margin=dict(l=20, r=20, t=55, b=30), xaxis_title=None, yaxis_title="População")
     return fig
 
 
@@ -106,7 +118,8 @@ def scatter_diversity_population(idr_df: pd.DataFrame, label_col: str):
         hover_name=label_col,
         size="Populacao",
         template=TEMPLATE,
-        title="Diversidade racial x populacao",
+        title="Relação entre População e Diversidade Racial",
+        labels=DISPLAY_NAMES,
     )
     fig.update_layout(margin=dict(l=20, r=20, t=55, b=30))
     return fig

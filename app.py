@@ -18,6 +18,7 @@ from src.filters import filter_frame, sorted_options
 from src.insights import all_insights
 from src.maps import build_choropleth, build_point_map
 from src.modeling import build_model
+from src.presentation import get_display_name, get_metric_help, presentation_frame
 from src.utils import br_number, br_percent
 
 
@@ -33,17 +34,6 @@ st.markdown(
     <style>
     .stApp { background: #0B1015; color: #EDF2F7; }
     [data-testid="stSidebar"] { background: #111820; border-right: 1px solid #263241; }
-    .metric-card {
-        border: 1px solid #263241;
-        border-radius: 8px;
-        padding: 16px 18px;
-        background: #121A23;
-        min-height: 112px;
-        margin-bottom: 20px;
-        box-sizing: border-box;
-    }
-    .metric-card .label { color: #9FB0C3; font-size: .86rem; }
-    .metric-card .value { color: #F7FAFC; font-size: 1.7rem; font-weight: 700; margin-top: 8px; }
     .note {
         border-left: 3px solid #3BA776;
         background: #101820;
@@ -57,7 +47,7 @@ st.markdown(
 )
 
 
-@st.cache_data(show_spinner="Carregando e tratando dados censitarios...")
+@st.cache_data(show_spinner="Carregando e tratando dados censitários...")
 def load_project():
     if processed_model_available():
         model = load_processed_model()
@@ -72,11 +62,9 @@ def load_project():
     return model, treatment_log, profile, inconsistencies, dictionary
 
 
-def metric_card(label: str, value: str):
-    st.markdown(
-        f"<div class='metric-card'><div class='label'>{label}</div><div class='value'>{value}</div></div>",
-        unsafe_allow_html=True,
-    )
+def metric_card(label: str, value: str, metric_key: str | None = None):
+    """Render a consistent KPI with an optional native accessible tooltip."""
+    st.metric(label, value, help=get_metric_help(metric_key) if metric_key else None, border=True)
 
 
 def filtered_model(model: dict[str, pd.DataFrame], filtros: dict) -> dict[str, pd.DataFrame]:
@@ -110,7 +98,7 @@ def sidebar_filters(model: dict[str, pd.DataFrame]) -> dict:
         mun_base.drop_duplicates("CD_MUN").set_index("CD_MUN")["NM_MUN"].astype(str).to_dict()
     )
     municipios = st.sidebar.multiselect(
-        "Municipio",
+        "Município",
         sorted(mun_labels),
         format_func=lambda code: f"{mun_labels[code]} ({code})",
         placeholder="Opções",
@@ -132,28 +120,28 @@ def sidebar_filters(model: dict[str, pd.DataFrame]) -> dict:
         "Sexo", ["Masculino", "Feminino"], placeholder="Opções"
     )
     faixas = st.sidebar.multiselect(
-        "Faixa etaria",
+        "Faixa etária",
         ["0 a 14 anos", "15 a 29 anos", "30 a 59 anos", "60 anos ou mais"],
         placeholder="Opções",
     )
     racas = st.sidebar.multiselect(
-        "Cor/raca",
+        "Cor ou raça",
         ["Branca", "Preta", "Amarela", "Parda", "Indigena"],
         placeholder="Opções",
     )
     page = st.sidebar.radio(
-        "Pagina",
+        "Página",
         [
-            "Visao Geral",
-            "Municipios",
+            "Visão Geral",
+            "Municípios",
             "Bairros",
             "Demografia",
             "Diversidade Racial",
-            "Responsaveis",
+            "Responsáveis",
             "Mapa",
             "Análises e Narrativa",
             "Qualidade dos Dados",
-            "Exportacao",
+            "Exportação",
             "Sobre o Projeto",
         ],
     )
@@ -197,39 +185,47 @@ def summary_kpis(model: dict[str, pd.DataFrame], filtros: dict | None = None) ->
 
 
 def page_overview(model, filtros):
-    st.title("Visao Geral")
+    st.title("Visão Geral")
     if filtros.get("sexos") and filtros.get("faixas") and filtros.get("racas"):
         st.warning(
-            "Nao existe uma tabela publicada com o cruzamento simultaneo sexo × idade × cor/raca; "
-            "o KPI populacional fica indisponivel para evitar um resultado enganoso."
+            "Não existe uma tabela publicada com o cruzamento simultâneo entre sexo, idade e "
+            "cor ou raça. A população analisada fica indisponível para evitar um resultado enganoso."
         )
     k = summary_kpis(model, filtros)
     cols = st.columns(4, gap="large")
     with cols[0]:
-        metric_card("População Abrangida pelos Bairros", br_number(k["Populacao total"]))
+        metric_card("População Analisada", br_number(k["Populacao total"]))
     with cols[1]:
-        metric_card("Municipios", br_number(k["Municipios"]))
+        metric_card("Municípios", br_number(k["Municipios"]))
     with cols[2]:
         metric_card("Bairros", br_number(k["Bairros"]))
     with cols[3]:
-        metric_card("IDR medio", br_number(k["IDR medio"], 3))
+        metric_card(
+            "Índice de Diversidade Racial Médio",
+            br_number(k["IDR medio"], 3),
+            "IDR_MEDIO",
+        )
     cols = st.columns(3, gap="large")
     with cols[0]:
-        metric_card("Representatividade feminina", br_percent(k["Representatividade feminina"]))
+        metric_card(
+            "Responsáveis do Sexo Feminino",
+            br_percent(k["Representatividade feminina"]),
+            "REPRESENTATIVIDADE_FEMININA",
+        )
     with cols[1]:
-        metric_card("Proporcao de jovens", br_percent(k["Jovens"]))
+        metric_card("População Jovem", br_percent(k["Jovens"]), "JOVENS")
     with cols[2]:
-        metric_card("Proporcao de idosos", br_percent(k["Idosos"]))
+        metric_card("População Idosa", br_percent(k["Idosos"]), "IDOSOS")
     col1, col2 = st.columns([1.1, 1])
     with col1:
-        mode = st.radio("Distribuicao racial", ["Quantidade", "Percentual"], horizontal=True)
-        st.plotly_chart(charts.bar_distribution(model["race_population"], "Cor_Raca", percent=mode == "Percentual"), width="stretch")
+        mode = st.radio("Distribuição racial", ["Quantidade", "Percentual"], horizontal=True)
+        st.plotly_chart(charts.bar_distribution(model["race_population"], "Cor_Raca", percent=mode == "Percentual", title="Composição Racial da População"), width="stretch")
     with col2:
         st.plotly_chart(charts.age_pyramid(model["demo_age_sex"]), width="stretch")
 
 
 def page_municipios(model):
-    st.title("Municipios")
+    st.title("Municípios")
     idr = metrics.ranking_municipios_diversidade(model["race_population"])
     rep = metrics.representatividade_feminina(model["responsible_race_sex"], ["CD_MUN", "NM_MUN"])
     jovens = metrics.proporcao_jovens(model["demo_age"], ["CD_MUN", "NM_MUN"])
@@ -237,12 +233,23 @@ def page_municipios(model):
     table = idr.merge(rep[["CD_MUN", "Percentual"]].rename(columns={"Percentual": "Representatividade feminina"}), on="CD_MUN", how="left", validate="one_to_one")
     table = table.merge(jovens[["CD_MUN", "Percentual"]].rename(columns={"Percentual": "Jovens"}), on="CD_MUN", how="left", validate="one_to_one")
     table = table.merge(idosos[["CD_MUN", "Percentual"]].rename(columns={"Percentual": "Idosos"}), on="CD_MUN", how="left", validate="one_to_one")
-    st.plotly_chart(charts.horizontal_ranking(table, "Municipio", "IDR", "Ranking de diversidade racial municipal"), width="stretch")
-    st.dataframe(table, width="stretch", hide_index=True)
-    selected = st.selectbox("Detalhamento por bairros", [""] + sorted_options(model["bairro"]["NM_MUN"]))
+    st.plotly_chart(charts.horizontal_ranking(table, "Municipio", "IDR", "Municípios com Maior Diversidade Racial"), width="stretch")
+    st.dataframe(
+        presentation_frame(
+            table,
+            ["Posicao", "Municipio", "Populacao", "IDR", "Grupo racial predominante", "Representatividade feminina", "Jovens", "Idosos"],
+        ),
+        width="stretch",
+        hide_index=True,
+    )
+    selected = st.selectbox("Ver bairros de um município", [""] + sorted_options(model["bairro"]["NM_MUN"]))
     if selected:
         bairros = model["bairro"][model["bairro"]["NM_MUN"].eq(selected)].sort_values("populacao_total", ascending=False)
-        st.dataframe(bairros[["NM_MUN", "NM_BAIRRO", "populacao_total", "AREA_KM2"]], width="stretch", hide_index=True)
+        st.dataframe(
+            presentation_frame(bairros, ["NM_BAIRRO", "NM_MUN", "populacao_total", "AREA_KM2"]),
+            width="stretch",
+            hide_index=True,
+        )
 
 
 def page_bairros(model):
@@ -254,15 +261,22 @@ def page_bairros(model):
     table = idr.merge(rep[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Representatividade feminina"}), on="CD_BAIRRO", how="left", validate="one_to_one")
     table = table.merge(jovens[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Jovens"}), on="CD_BAIRRO", how="left", validate="one_to_one")
     table = table.merge(idosos[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Idosos"}), on="CD_BAIRRO", how="left", validate="one_to_one")
-    st.plotly_chart(charts.horizontal_ranking(table, "NM_BAIRRO", "Populacao", "Bairros mais populosos"), width="stretch")
-    st.dataframe(table, width="stretch", hide_index=True)
+    st.plotly_chart(charts.horizontal_ranking(table, "NM_BAIRRO", "Populacao", "Bairros Mais Populosos"), width="stretch")
+    st.dataframe(
+        presentation_frame(
+            table,
+            ["NM_BAIRRO", "NM_MUN", "Populacao", "IDR", "Representatividade feminina", "Jovens", "Idosos"],
+        ),
+        width="stretch",
+        hide_index=True,
+    )
 
 
 def page_demography(model):
     st.title("Demografia")
     col1, col2 = st.columns(2)
     with col1:
-        st.plotly_chart(charts.age_pyramid(model["demo_age_sex"], "Piramide etaria por sexo"), width="stretch")
+        st.plotly_chart(charts.age_pyramid(model["demo_age_sex"], "Pirâmide Etária por Sexo"), width="stretch")
     with col2:
         st.plotly_chart(charts.line_or_bar_age_by_race(model["race_age"]), width="stretch")
     age = (
@@ -271,7 +285,7 @@ def page_demography(model):
         .sum()
         .reset_index()
     )
-    st.dataframe(age, width="stretch", hide_index=True)
+    st.dataframe(presentation_frame(age), width="stretch", hide_index=True)
 
 
 def page_diversity(model):
@@ -282,28 +296,36 @@ def page_diversity(model):
     with col1:
         scatter = charts.scatter_diversity_population(idr_bairro, "NM_BAIRRO")
         if scatter is None:
-            st.info("Não há dados válidos de população e IDR para exibir neste gráfico.")
+            st.info("Não há dados válidos de população e diversidade racial para exibir neste gráfico.")
         else:
             st.plotly_chart(scatter, width="stretch")
     with col2:
-        st.plotly_chart(charts.bar_distribution(model["race_population"], "Cor_Raca", percent=True, title="Composicao racial"), width="stretch")
-    st.subheader("Municipios com maior diversidade")
-    st.dataframe(idr_mun, width="stretch", hide_index=True)
+        st.plotly_chart(charts.bar_distribution(model["race_population"], "Cor_Raca", percent=True, title="Composição Racial da População"), width="stretch")
+    st.subheader("Municípios com Maior Diversidade Racial", help=get_metric_help("IDR"))
+    st.dataframe(
+        presentation_frame(idr_mun, ["NM_MUN", "Populacao", "IDR"]),
+        width="stretch",
+        hide_index=True,
+    )
 
 
 def page_responsibles(model):
-    st.title("Responsaveis pelo Domicilio")
+    st.title("Responsáveis pelo Domicílio")
     rep = metrics.representatividade_feminina(model["responsible_race_sex"], ["Cor_Raca"])
     indig = metrics.ranking_responsaveis_indigenas_40mais(model["responsible_race_age"])
     col1, col2 = st.columns(2)
     with col1:
-        st.plotly_chart(charts.bar_distribution(model["responsible_race_sex"], "Sexo", title="Responsaveis por sexo"), width="stretch")
+        st.plotly_chart(charts.bar_distribution(model["responsible_race_sex"], "Sexo", title="Responsáveis por Sexo"), width="stretch")
     with col2:
-        st.plotly_chart(charts.bar_distribution(model["responsible_race"], "Cor_Raca", title="Responsaveis por cor/raca"), width="stretch")
-    st.subheader("Representatividade feminina por cor/raca")
-    st.dataframe(rep, width="stretch", hide_index=True)
-    st.subheader("Responsaveis indigenas acima de 40 anos")
-    st.dataframe(indig, width="stretch", hide_index=True)
+        st.plotly_chart(charts.bar_distribution(model["responsible_race"], "Cor_Raca", title="Responsáveis por Cor ou Raça"), width="stretch")
+    st.subheader("Participação Feminina entre Responsáveis")
+    st.dataframe(presentation_frame(rep), width="stretch", hide_index=True)
+    st.subheader("Responsáveis Indígenas com 40 Anos ou Mais")
+    st.dataframe(
+        presentation_frame(indig, ["NM_BAIRRO", "NM_MUN", "Quantidade", "Total_Responsaveis", "Percentual"]),
+        width="stretch",
+        hide_index=True,
+    )
 
 
 def page_map(model):
@@ -320,7 +342,12 @@ def page_map(model):
     indicators = indicators.merge(rep[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Representatividade feminina"}), on="CD_BAIRRO", how="left", validate="one_to_one")
     indicators = indicators.merge(jovens[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Jovens"}), on="CD_BAIRRO", how="left", validate="one_to_one")
     indicators = indicators.merge(idosos[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Idosos"}), on="CD_BAIRRO", how="left", validate="one_to_one")
-    indicator = st.selectbox("Indicador", ["Populacao", "IDR", "Representatividade feminina", "Jovens", "Idosos"])
+    indicator = st.selectbox(
+        "Indicador",
+        ["Populacao", "IDR", "Representatividade feminina", "Jovens", "Idosos"],
+        format_func=get_display_name,
+        help=get_metric_help("IDR"),
+    )
     map_mode = st.radio(
         "Cobertura geográfica",
         ["Brasil — pontos representativos", "Bahia — limites oficiais"],
@@ -347,30 +374,44 @@ def page_map(model):
 
 def page_quality(profile, treatment_log, inconsistencies, dictionary):
     st.title("Qualidade dos Dados")
-    st.dataframe(profile, width="stretch", hide_index=True)
-    st.subheader("Tratamentos registrados")
-    st.dataframe(treatment_log, width="stretch", hide_index=True)
-    st.subheader("Validacoes")
-    st.dataframe(inconsistencies, width="stretch", hide_index=True)
-    st.subheader("Dicionario")
-    st.dataframe(dictionary.head(300), width="stretch", hide_index=True)
+    st.subheader("Perfil das Tabelas")
+    st.dataframe(presentation_frame(profile), width="stretch", hide_index=True)
+    st.subheader("Tratamentos Registrados")
+    st.dataframe(presentation_frame(treatment_log), width="stretch", hide_index=True)
+    st.subheader("Validações")
+    st.dataframe(presentation_frame(inconsistencies), width="stretch", hide_index=True)
+    st.subheader("Dicionário de Dados")
+    st.dataframe(
+        presentation_frame(dictionary.head(300), hidden=["variavel_norm"]),
+        width="stretch",
+        hide_index=True,
+    )
 
 
 def page_exports(model, filtros):
-    st.title("Exportacao")
+    st.title("Exportação")
     idr_mun = metrics.ranking_municipios_diversidade(model["race_population"])
     idr_bairro = metrics.calcular_idr(model["race_population"], "bairro")
     insights = all_insights(model)
     sheets = {
-        "Resumo": pd.DataFrame([summary_kpis(model, filtros)]),
-        "Municipios": idr_mun,
-        "Bairros": idr_bairro,
-        "Raca": model["race_population"],
-        "Sexo": model["demo_age_sex"],
-        "Faixa Etaria": model["demo_age"],
-        "Responsaveis": model["responsible_race_sex"],
+        "Resumo": presentation_frame(pd.DataFrame([summary_kpis(model, filtros)])),
+        "Municípios": presentation_frame(idr_mun),
+        "Bairros": presentation_frame(idr_bairro),
+        "Cor ou Raça": presentation_frame(model["race_population"]),
+        "Sexo": presentation_frame(model["demo_age_sex"]),
+        "Faixa Etária": presentation_frame(model["demo_age"]),
+        "Responsáveis": presentation_frame(model["responsible_race_sex"]),
     }
-    st.download_button("Baixar dados filtrados CSV", csv_bytes(model["bairro"]), "dados_filtrados.csv", "text/csv")
+    csv_columns = [
+        "CD_BAIRRO", "NM_BAIRRO", "CD_MUN", "NM_MUN", "CD_UF", "NM_UF",
+        "populacao_total", "domicilios_total", "domicilios_ocupados", "AREA_KM2",
+    ]
+    st.download_button(
+        "Baixar dados filtrados em CSV",
+        csv_bytes(presentation_frame(model["bairro"], csv_columns)),
+        "dados_filtrados.csv",
+        "text/csv",
+    )
     st.download_button("Baixar relatório Excel", excel_report(sheets), "relatorio_analises.xlsx")
     st.download_button("Baixar análises em PDF", pdf_insights("Análises do Censo 2022", insights), "analises.pdf", "application/pdf")
 
@@ -386,19 +427,19 @@ def page_about():
     st.title("Sobre o Projeto")
     st.markdown(
         """
-        Projeto analitico em Python para agregados do Censo 2022 por bairros.
+        Projeto analítico em Python para os agregados do Censo 2022 por bairros.
 
         **Desenvolvido por Emanuel Sousa Vasconcellos Lima.**
 
-        A modelagem usa `CD_BAIRRO` como chave principal, preserva os arquivos originais e cria fatos derivados para populacao por idade/sexo, populacao por cor/raca, responsaveis por sexo/cor/raca e responsaveis por faixa etaria.
+        A modelagem utiliza o Código do Bairro como chave territorial, preserva os arquivos originais e cria conjuntos analíticos para população por idade, sexo, cor ou raça e características dos responsáveis pelos domicílios.
 
-        O IDR e calculado pelo indice de Simpson normalizado: `1 - soma(p_i^2)`, reescalado para o intervalo de 0 a 1 conforme o numero de categorias observadas. Como nao ha formula oficial de IDR nos arquivos fornecidos, a decisao metodologica fica explicita no codigo e na documentacao.
+        O Índice de Diversidade Racial (IDR) utiliza o índice de Simpson normalizado, reescalado para o intervalo de 0 a 1 conforme o número de grupos raciais observados. Como não há uma fórmula oficial de IDR nos arquivos fornecidos, a decisão metodológica está documentada no código e no projeto.
 
-        A idade media de responsaveis e uma estimativa por pontos medios de faixas. Classes abertas usam ponto medio metodologico documentado, nao idade individual inventada.
+        A idade média dos responsáveis é estimada pelos pontos médios das faixas etárias. Classes abertas utilizam um ponto médio metodológico documentado, sem atribuir idades individuais inexistentes.
 
-        A malha geografica disponivel e da Bahia; por isso o mapa mostra somente bairros com geometria correspondente.
+        O mapa nacional utiliza pontos representativos calculados dentro dos polígonos oficiais dos bairros. Para a Bahia, também está disponível a visualização dos limites territoriais detalhados.
 
-        **Licenca:** este projeto e distribuido sob a Licenca MIT. Consulte o arquivo `LICENSE` para conhecer os termos.
+        **Licença:** este projeto é distribuído sob a Licença MIT. Consulte o arquivo `LICENSE` para conhecer os termos.
         """
     )
 
@@ -408,9 +449,9 @@ def main():
     filtros = sidebar_filters(model)
     current = filtered_model(model, filtros)
     page = filtros["page"]
-    if page == "Visao Geral":
+    if page == "Visão Geral":
         page_overview(current, filtros)
-    elif page == "Municipios":
+    elif page == "Municípios":
         page_municipios(current)
     elif page == "Bairros":
         page_bairros(current)
@@ -418,7 +459,7 @@ def main():
         page_demography(current)
     elif page == "Diversidade Racial":
         page_diversity(current)
-    elif page == "Responsaveis":
+    elif page == "Responsáveis":
         page_responsibles(current)
     elif page == "Mapa":
         page_map(current)
@@ -426,7 +467,7 @@ def main():
         page_storytelling(current)
     elif page == "Qualidade dos Dados":
         page_quality(profile, treatment_log, inconsistencies, dictionary)
-    elif page == "Exportacao":
+    elif page == "Exportação":
         page_exports(current, filtros)
     else:
         page_about()

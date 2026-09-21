@@ -7,7 +7,9 @@ from . import config
 
 
 def safe_divide(numerator: float, denominator: float) -> float:
-    return float(numerator / denominator) if denominator else float("nan")
+    if pd.isna(numerator) or pd.isna(denominator) or denominator == 0:
+        return float("nan")
+    return float(numerator / denominator)
 
 
 def calcular_idr(df: pd.DataFrame, nivel: str = "bairro") -> pd.DataFrame:
@@ -47,13 +49,18 @@ def percent_by_group(df: pd.DataFrame, group_cols: list[str], mask: pd.Series) -
         return pd.DataFrame(columns=group_cols + ["Total", "Quantidade", "Percentual"])
     if not group_cols:
         total = df["valor"].sum(min_count=1)
-        quantity = df.loc[mask, "valor"].sum(min_count=1)
+        matched = df.loc[mask, "valor"]
+        # An absent category after filtering is a structural zero. Rows that
+        # exist but contain only suppressed values remain NA.
+        quantity = 0 if matched.empty else matched.sum(min_count=1)
         return pd.DataFrame(
             [{"Total": total, "Quantidade": quantity, "Percentual": safe_divide(quantity, total) * 100}]
         )
     base = df.groupby(group_cols, dropna=False, observed=True)["valor"].sum(min_count=1).rename("Total")
     subset = df[mask].groupby(group_cols, dropna=False, observed=True)["valor"].sum(min_count=1).rename("Quantidade")
     result = pd.concat([base, subset], axis=1).reset_index()
+    absent_category = ~result.set_index(group_cols).index.isin(subset.index)
+    result.loc[absent_category, "Quantidade"] = 0
     result["Percentual"] = (
         result["Quantidade"].div(result["Total"]).mul(100).where(result["Total"].gt(0))
     )
