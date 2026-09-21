@@ -16,6 +16,14 @@ from src.data_loader import (
 from src.exports import csv_bytes, excel_report, pdf_insights
 from src.filters import filter_frame, sorted_options
 from src.insights import all_insights
+from src.interactivity import (
+    age_source,
+    female_responsibility_source,
+    population_source,
+    racial_source,
+    responsible_race_source,
+    unavailable_reason,
+)
 from src.maps import build_choropleth, build_point_map
 from src.modeling import build_model
 from src.presentation import get_display_name, get_metric_help, presentation_frame
@@ -65,6 +73,35 @@ def load_project():
 def metric_card(label: str, value: str, metric_key: str | None = None):
     """Render a consistent KPI with an optional native accessible tooltip."""
     st.metric(label, value, help=get_metric_help(metric_key) if metric_key else None, border=True)
+
+
+def merge_percentage_metric(table, source, group_cols, calculator, output_name):
+    """Merge an interactive percentage or mark it unavailable without inventing data."""
+    if source is None:
+        result = table.copy()
+        result[output_name] = np.nan
+        return result
+    calculated = calculator(source, group_cols)
+    return table.merge(
+        calculated[group_cols + ["Percentual"]].rename(columns={"Percentual": output_name}),
+        on=group_cols,
+        how="left",
+        validate="one_to_one",
+    )
+
+
+def merge_population_metric(table, source, group_cols):
+    result = table.drop(columns=["Populacao"], errors="ignore")
+    if source is None:
+        result["Populacao"] = np.nan
+        return result
+    population = (
+        source.groupby(group_cols, dropna=False, observed=True)["valor"]
+        .sum(min_count=1)
+        .rename("Populacao")
+        .reset_index()
+    )
+    return result.merge(population, on=group_cols, how="left", validate="one_to_one")
 
 
 def filtered_model(model: dict[str, pd.DataFrame], filtros: dict) -> dict[str, pd.DataFrame]:
@@ -150,46 +187,48 @@ def sidebar_filters(model: dict[str, pd.DataFrame]) -> dict:
 
 def summary_kpis(model: dict[str, pd.DataFrame], filtros: dict | None = None) -> dict[str, float]:
     filtros = filtros or {}
-    has_sex = bool(filtros.get("sexos"))
-    has_age = bool(filtros.get("faixas"))
-    has_race = bool(filtros.get("racas"))
-    if has_sex and has_age and has_race:
-        pop = np.nan
-    elif has_sex and has_race:
-        pop = model["race_sex"]["valor"].sum()
-    elif has_sex and has_age:
-        pop = model["demo_age_sex"]["valor"].sum()
-    elif has_race and has_age:
-        pop = model["race_age"]["valor"].sum()
-    elif has_race:
-        pop = model["race_population"]["valor"].sum()
-    elif has_age:
-        pop = model["demo_age"]["valor"].sum()
-    elif has_sex:
-        pop = model["demo_age_sex"]["valor"].sum()
-    else:
-        pop = model["bairro"]["populacao_total"].sum()
-    idr_bairro = metrics.calcular_idr(model["race_population"], "bairro") if not model["race_population"].empty else pd.DataFrame({"IDR": [0]})
-    rep = metrics.representatividade_feminina(model["responsible_race_sex"])
-    jovens = metrics.proporcao_jovens(model["demo_age"])
-    idosos = metrics.proporcao_idosos(model["demo_age"])
+    population_data = population_source(model, filtros)
+    pop = population_data["valor"].sum(min_count=1) if population_data is not None else np.nan
+    race_data = racial_source(model, filtros)
+    age_data = age_source(model, filtros)
+    responsibility_data = female_responsibility_source(model, filtros)
+    idr_bairro = (
+        metrics.calcular_idr(race_data, "bairro")
+        if race_data is not None and not race_data.empty
+        else pd.DataFrame()
+    )
+    rep = (
+        metrics.representatividade_feminina(responsibility_data)
+        if responsibility_data is not None
+        else pd.DataFrame()
+    )
+    jovens = metrics.proporcao_jovens(age_data) if age_data is not None else pd.DataFrame()
+    idosos = metrics.proporcao_idosos(age_data) if age_data is not None else pd.DataFrame()
     return {
         "Populacao total": pop,
         "Municipios": model["bairro"]["CD_MUN"].nunique(),
         "Bairros": model["bairro"]["CD_BAIRRO"].nunique(),
-        "IDR medio": idr_bairro["IDR"].mean(),
-        "Representatividade feminina": rep["Percentual"].iloc[0] if not rep.empty else 0,
-        "Jovens": jovens["Percentual"].iloc[0] if not jovens.empty else 0,
-        "Idosos": idosos["Percentual"].iloc[0] if not idosos.empty else 0,
+        "IDR medio": idr_bairro["IDR"].mean() if not idr_bairro.empty else np.nan,
+        "Representatividade feminina": rep["Percentual"].iloc[0] if not rep.empty else np.nan,
+        "Jovens": jovens["Percentual"].iloc[0] if not jovens.empty else np.nan,
+        "Idosos": idosos["Percentual"].iloc[0] if not idosos.empty else np.nan,
     }
 
 
 def page_overview(model, filtros):
     st.title("Visão Geral")
-    if filtros.get("sexos") and filtros.get("faixas") and filtros.get("racas"):
+    unavailable_metrics = []
+    if racial_source(model, filtros) is None:
+        unavailable_metrics.append("diversidade e composição racial")
+    if age_source(model, filtros) is None:
+        unavailable_metrics.append("população jovem e idosa")
+    if female_responsibility_source(model, filtros) is None:
+        unavailable_metrics.append("responsáveis do sexo feminino")
+    if unavailable_metrics:
         st.warning(
-            "Não existe uma tabela publicada com o cruzamento simultâneo entre sexo, idade e "
-            "cor ou raça. A população analisada fica indisponível para evitar um resultado enganoso."
+            f"{unavailable_reason(filtros)} Métricas afetadas: "
+            + ", ".join(unavailable_metrics)
+            + "."
         )
     k = summary_kpis(model, filtros)
     cols = st.columns(4, gap="large")
@@ -219,21 +258,37 @@ def page_overview(model, filtros):
     col1, col2 = st.columns([1.1, 1])
     with col1:
         mode = st.radio("Distribuição racial", ["Quantidade", "Percentual"], horizontal=True)
-        st.plotly_chart(charts.bar_distribution(model["race_population"], "Cor_Raca", percent=mode == "Percentual", title="Composição Racial da População"), width="stretch")
+        race_data = racial_source(model, filtros)
+        if race_data is None:
+            st.info(unavailable_reason(filtros))
+        else:
+            st.plotly_chart(charts.bar_distribution(race_data, "Cor_Raca", percent=mode == "Percentual", title="Composição Racial da População"), width="stretch")
     with col2:
-        st.plotly_chart(charts.age_pyramid(model["demo_age_sex"]), width="stretch")
+        if filtros.get("racas"):
+            st.info(
+                "A pirâmide etária por sexo fica indisponível com o filtro de cor ou raça, "
+                "pois a base não possui o cruzamento simultâneo entre idade, sexo e raça."
+            )
+        else:
+            st.plotly_chart(charts.age_pyramid(model["demo_age_sex"]), width="stretch")
 
 
-def page_municipios(model):
+def page_municipios(model, filtros):
     st.title("Municípios")
-    idr = metrics.ranking_municipios_diversidade(model["race_population"])
-    rep = metrics.representatividade_feminina(model["responsible_race_sex"], ["CD_MUN", "NM_MUN"])
-    jovens = metrics.proporcao_jovens(model["demo_age"], ["CD_MUN", "NM_MUN"])
-    idosos = metrics.proporcao_idosos(model["demo_age"], ["CD_MUN", "NM_MUN"])
-    table = idr.merge(rep[["CD_MUN", "Percentual"]].rename(columns={"Percentual": "Representatividade feminina"}), on="CD_MUN", how="left", validate="one_to_one")
-    table = table.merge(jovens[["CD_MUN", "Percentual"]].rename(columns={"Percentual": "Jovens"}), on="CD_MUN", how="left", validate="one_to_one")
-    table = table.merge(idosos[["CD_MUN", "Percentual"]].rename(columns={"Percentual": "Idosos"}), on="CD_MUN", how="left", validate="one_to_one")
-    st.plotly_chart(charts.horizontal_ranking(table, "Municipio", "IDR", "Municípios com Maior Diversidade Racial"), width="stretch")
+    race_data = racial_source(model, filtros)
+    age_data = age_source(model, filtros)
+    responsibility_data = female_responsibility_source(model, filtros)
+    if race_data is None:
+        table = model["bairro"][["CD_MUN", "NM_MUN"]].drop_duplicates().rename(columns={"NM_MUN": "Municipio"})
+        table[["Populacao", "IDR", "Grupo racial predominante"]] = np.nan
+        st.info(unavailable_reason(filtros))
+    else:
+        table = metrics.ranking_municipios_diversidade(race_data)
+        st.plotly_chart(charts.horizontal_ranking(table, "Municipio", "IDR", "Municípios com Maior Diversidade Racial"), width="stretch")
+    table = merge_population_metric(table, population_source(model, filtros), ["CD_MUN"])
+    table = merge_percentage_metric(table, responsibility_data, ["CD_MUN"], metrics.representatividade_feminina, "Representatividade feminina")
+    table = merge_percentage_metric(table, age_data, ["CD_MUN"], metrics.proporcao_jovens, "Jovens")
+    table = merge_percentage_metric(table, age_data, ["CD_MUN"], metrics.proporcao_idosos, "Idosos")
     st.dataframe(
         presentation_frame(
             table,
@@ -252,16 +307,23 @@ def page_municipios(model):
         )
 
 
-def page_bairros(model):
+def page_bairros(model, filtros):
     st.title("Bairros")
-    idr = metrics.calcular_idr(model["race_population"], "bairro")
-    rep = metrics.representatividade_feminina(model["responsible_race_sex"], ["CD_BAIRRO", "NM_BAIRRO", "NM_MUN"])
-    jovens = metrics.proporcao_jovens(model["demo_age"], ["CD_BAIRRO", "NM_BAIRRO", "NM_MUN"])
-    idosos = metrics.proporcao_idosos(model["demo_age"], ["CD_BAIRRO", "NM_BAIRRO", "NM_MUN"])
-    table = idr.merge(rep[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Representatividade feminina"}), on="CD_BAIRRO", how="left", validate="one_to_one")
-    table = table.merge(jovens[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Jovens"}), on="CD_BAIRRO", how="left", validate="one_to_one")
-    table = table.merge(idosos[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Idosos"}), on="CD_BAIRRO", how="left", validate="one_to_one")
-    st.plotly_chart(charts.horizontal_ranking(table, "NM_BAIRRO", "Populacao", "Bairros Mais Populosos"), width="stretch")
+    group_cols = ["CD_BAIRRO", "NM_BAIRRO", "NM_MUN"]
+    race_data = racial_source(model, filtros)
+    age_data = age_source(model, filtros)
+    responsibility_data = female_responsibility_source(model, filtros)
+    if race_data is None:
+        table = model["bairro"][group_cols].drop_duplicates()
+        table[["Populacao", "IDR"]] = np.nan
+        st.info(unavailable_reason(filtros))
+    else:
+        table = metrics.calcular_idr(race_data, "bairro")
+        st.plotly_chart(charts.horizontal_ranking(table, "NM_BAIRRO", "Populacao", "Bairros Mais Populosos"), width="stretch")
+    table = merge_population_metric(table, population_source(model, filtros), group_cols)
+    table = merge_percentage_metric(table, responsibility_data, group_cols, metrics.representatividade_feminina, "Representatividade feminina")
+    table = merge_percentage_metric(table, age_data, group_cols, metrics.proporcao_jovens, "Jovens")
+    table = merge_percentage_metric(table, age_data, group_cols, metrics.proporcao_idosos, "Idosos")
     st.dataframe(
         presentation_frame(
             table,
@@ -272,13 +334,19 @@ def page_bairros(model):
     )
 
 
-def page_demography(model):
+def page_demography(model, filtros):
     st.title("Demografia")
     col1, col2 = st.columns(2)
     with col1:
-        st.plotly_chart(charts.age_pyramid(model["demo_age_sex"], "Pirâmide Etária por Sexo"), width="stretch")
+        if filtros.get("racas"):
+            st.info("Pirâmide indisponível: não há cruzamento simultâneo entre idade, sexo e raça.")
+        else:
+            st.plotly_chart(charts.age_pyramid(model["demo_age_sex"], "Pirâmide Etária por Sexo"), width="stretch")
     with col2:
-        st.plotly_chart(charts.line_or_bar_age_by_race(model["race_age"]), width="stretch")
+        if filtros.get("sexos"):
+            st.info("Distribuição por idade e raça indisponível com filtro de sexo.")
+        else:
+            st.plotly_chart(charts.line_or_bar_age_by_race(model["race_age"]), width="stretch")
     age = (
         model["demo_age"]
         .groupby("Faixa_Etaria", dropna=False, observed=True)["valor"]
@@ -288,10 +356,14 @@ def page_demography(model):
     st.dataframe(presentation_frame(age), width="stretch", hide_index=True)
 
 
-def page_diversity(model):
+def page_diversity(model, filtros):
     st.title("Diversidade Racial")
-    idr_bairro = metrics.calcular_idr(model["race_population"], "bairro")
-    idr_mun = metrics.calcular_idr(model["race_population"], "municipio")
+    race_data = racial_source(model, filtros)
+    if race_data is None:
+        st.warning(unavailable_reason(filtros))
+        return
+    idr_bairro = metrics.calcular_idr(race_data, "bairro")
+    idr_mun = metrics.calcular_idr(race_data, "municipio")
     col1, col2 = st.columns(2)
     with col1:
         scatter = charts.scatter_diversity_population(idr_bairro, "NM_BAIRRO")
@@ -300,7 +372,7 @@ def page_diversity(model):
         else:
             st.plotly_chart(scatter, width="stretch")
     with col2:
-        st.plotly_chart(charts.bar_distribution(model["race_population"], "Cor_Raca", percent=True, title="Composição Racial da População"), width="stretch")
+        st.plotly_chart(charts.bar_distribution(race_data, "Cor_Raca", percent=True, title="Composição Racial da População"), width="stretch")
     st.subheader("Municípios com Maior Diversidade Racial", help=get_metric_help("IDR"))
     st.dataframe(
         presentation_frame(idr_mun, ["NM_MUN", "Populacao", "IDR"]),
@@ -309,42 +381,79 @@ def page_diversity(model):
     )
 
 
-def page_responsibles(model):
+def page_responsibles(model, filtros):
     st.title("Responsáveis pelo Domicílio")
-    rep = metrics.representatividade_feminina(model["responsible_race_sex"], ["Cor_Raca"])
-    indig = metrics.ranking_responsaveis_indigenas_40mais(model["responsible_race_age"])
+    responsibility_data = female_responsibility_source(model, filtros)
+    race_data = responsible_race_source(model, filtros)
+    rep = metrics.representatividade_feminina(responsibility_data, ["Cor_Raca"]) if responsibility_data is not None else pd.DataFrame()
+    indig = metrics.ranking_responsaveis_indigenas_40mais(model["responsible_race_age"]) if not filtros.get("sexos") and not filtros.get("faixas") else pd.DataFrame()
     col1, col2 = st.columns(2)
     with col1:
-        st.plotly_chart(charts.bar_distribution(model["responsible_race_sex"], "Sexo", title="Responsáveis por Sexo"), width="stretch")
+        if filtros.get("faixas"):
+            st.info("Distribuição por sexo indisponível com filtro de idade.")
+        else:
+            st.plotly_chart(charts.bar_distribution(model["responsible_race_sex"], "Sexo", title="Responsáveis por Sexo"), width="stretch")
     with col2:
-        st.plotly_chart(charts.bar_distribution(model["responsible_race"], "Cor_Raca", title="Responsáveis por Cor ou Raça"), width="stretch")
+        if race_data is None:
+            st.info(unavailable_reason(filtros))
+        else:
+            st.plotly_chart(charts.bar_distribution(race_data, "Cor_Raca", title="Responsáveis por Cor ou Raça"), width="stretch")
     st.subheader("Participação Feminina entre Responsáveis")
-    st.dataframe(presentation_frame(rep), width="stretch", hide_index=True)
+    if rep.empty:
+        st.info("Indicador indisponível com filtro de idade: não há cruzamento entre idade e sexo dos responsáveis.")
+    else:
+        st.dataframe(presentation_frame(rep), width="stretch", hide_index=True)
     st.subheader("Responsáveis Indígenas com 40 Anos ou Mais")
-    st.dataframe(
-        presentation_frame(indig, ["NM_BAIRRO", "NM_MUN", "Quantidade", "Total_Responsaveis", "Percentual"]),
-        width="stretch",
-        hide_index=True,
-    )
+    if indig.empty:
+        st.info("Indicador indisponível para os filtros selecionados porque as faixas publicadas para responsáveis não permitem esse cruzamento exato.")
+    else:
+        st.dataframe(
+            presentation_frame(indig, ["NM_BAIRRO", "NM_MUN", "Quantidade", "Total_Responsaveis", "Percentual"]),
+            width="stretch",
+            hide_index=True,
+        )
 
 
-def page_map(model):
+def page_map(model, filtros):
     st.title("Mapa")
-    idr = metrics.calcular_idr(model["race_population"], "bairro")
-    rep = metrics.representatividade_feminina(model["responsible_race_sex"], ["CD_BAIRRO"])
-    jovens = metrics.proporcao_jovens(model["demo_age"], ["CD_BAIRRO"])
-    idosos = metrics.proporcao_idosos(model["demo_age"], ["CD_BAIRRO"])
-    indicator_columns = ["CD_BAIRRO", "NM_BAIRRO", "NM_MUN", "populacao_total"]
+    race_data = racial_source(model, filtros)
+    age_data = age_source(model, filtros)
+    responsibility_data = female_responsibility_source(model, filtros)
+    idr = metrics.calcular_idr(race_data, "bairro") if race_data is not None else pd.DataFrame()
+    rep = metrics.representatividade_feminina(responsibility_data, ["CD_BAIRRO"]) if responsibility_data is not None else pd.DataFrame()
+    jovens = metrics.proporcao_jovens(age_data, ["CD_BAIRRO"]) if age_data is not None else pd.DataFrame()
+    idosos = metrics.proporcao_idosos(age_data, ["CD_BAIRRO"]) if age_data is not None else pd.DataFrame()
+    indicator_columns = ["CD_BAIRRO", "NM_BAIRRO", "NM_MUN"]
     if "NM_UF" in model["bairro"].columns:
         indicator_columns.insert(3, "NM_UF")
-    indicators = model["bairro"][indicator_columns].rename(columns={"populacao_total": "Populacao"})
-    indicators = indicators.merge(idr[["CD_BAIRRO", "IDR"]], on="CD_BAIRRO", how="left", validate="one_to_one")
-    indicators = indicators.merge(rep[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Representatividade feminina"}), on="CD_BAIRRO", how="left", validate="one_to_one")
-    indicators = indicators.merge(jovens[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Jovens"}), on="CD_BAIRRO", how="left", validate="one_to_one")
-    indicators = indicators.merge(idosos[["CD_BAIRRO", "Percentual"]].rename(columns={"Percentual": "Idosos"}), on="CD_BAIRRO", how="left", validate="one_to_one")
+    indicators = model["bairro"][indicator_columns].drop_duplicates("CD_BAIRRO")
+    indicators = merge_population_metric(indicators, population_source(model, filtros), ["CD_BAIRRO"])
+    for frame, source_column, output_column in [
+        (idr, "IDR", "IDR"),
+        (rep, "Percentual", "Representatividade feminina"),
+        (jovens, "Percentual", "Jovens"),
+        (idosos, "Percentual", "Idosos"),
+    ]:
+        if frame.empty:
+            indicators[output_column] = np.nan
+        else:
+            indicators = indicators.merge(
+                frame[["CD_BAIRRO", source_column]].rename(columns={source_column: output_column}),
+                on="CD_BAIRRO",
+                how="left",
+                validate="one_to_one",
+            )
+    indicator_options = [
+        column
+        for column in ["Populacao", "IDR", "Representatividade feminina", "Jovens", "Idosos"]
+        if indicators[column].notna().any()
+    ]
+    if not indicator_options:
+        st.warning(unavailable_reason(filtros))
+        return
     indicator = st.selectbox(
         "Indicador",
-        ["Populacao", "IDR", "Representatividade feminina", "Jovens", "Idosos"],
+        indicator_options,
         format_func=get_display_name,
         help=get_metric_help("IDR"),
     )
@@ -452,17 +561,17 @@ def main():
     if page == "Visão Geral":
         page_overview(current, filtros)
     elif page == "Municípios":
-        page_municipios(current)
+        page_municipios(current, filtros)
     elif page == "Bairros":
-        page_bairros(current)
+        page_bairros(current, filtros)
     elif page == "Demografia":
-        page_demography(current)
+        page_demography(current, filtros)
     elif page == "Diversidade Racial":
-        page_diversity(current)
+        page_diversity(current, filtros)
     elif page == "Responsáveis":
-        page_responsibles(current)
+        page_responsibles(current, filtros)
     elif page == "Mapa":
-        page_map(current)
+        page_map(current, filtros)
     elif page == "Análises e Narrativa":
         page_storytelling(current)
     elif page == "Qualidade dos Dados":
