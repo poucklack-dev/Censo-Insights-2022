@@ -53,7 +53,9 @@ def clean_table(df: pd.DataFrame, name: str) -> tuple[pd.DataFrame, pd.DataFrame
         unique_part = cleaned[~cleaned["CD_BAIRRO"].duplicated(keep=False)]
         duplicate_part = cleaned[cleaned["CD_BAIRRO"].duplicated(keep=False)]
         rows = []
-        for cd_bairro, group in duplicate_part.groupby("CD_BAIRRO", dropna=False):
+        for cd_bairro, group in duplicate_part.groupby(
+            "CD_BAIRRO", dropna=False, observed=True
+        ):
             row = {"CD_BAIRRO": cd_bairro}
             for col in numeric_cols:
                 if col in {"v0005", "v0006"} and "v0007" in group:
@@ -133,7 +135,7 @@ def detect_inconsistencies(model: dict[str, pd.DataFrame]) -> pd.DataFrame:
             }
         )
     if "race_population" in model:
-        race_total = model["race_population"].groupby("CD_BAIRRO")["valor"].sum(min_count=1)
+        race_total = model["race_population"].groupby("CD_BAIRRO", observed=True)["valor"].sum(min_count=1)
         expected = bairro.set_index("CD_BAIRRO")["populacao_total"]
         diff = (race_total.reindex(expected.index) - expected).abs()
         checks.append(

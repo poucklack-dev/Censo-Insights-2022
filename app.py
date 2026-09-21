@@ -265,7 +265,12 @@ def page_demography(model):
         st.plotly_chart(charts.age_pyramid(model["demo_age_sex"], "Piramide etaria por sexo"), width="stretch")
     with col2:
         st.plotly_chart(charts.line_or_bar_age_by_race(model["race_age"]), width="stretch")
-    age = model["demo_age"].groupby("Faixa_Etaria", dropna=False)["valor"].sum().reset_index()
+    age = (
+        model["demo_age"]
+        .groupby("Faixa_Etaria", dropna=False, observed=True)["valor"]
+        .sum()
+        .reset_index()
+    )
     st.dataframe(age, width="stretch", hide_index=True)
 
 
@@ -275,7 +280,11 @@ def page_diversity(model):
     idr_mun = metrics.calcular_idr(model["race_population"], "municipio")
     col1, col2 = st.columns(2)
     with col1:
-        st.plotly_chart(charts.scatter_diversity_population(idr_bairro, "NM_BAIRRO"), width="stretch")
+        scatter = charts.scatter_diversity_population(idr_bairro, "NM_BAIRRO")
+        if scatter is None:
+            st.info("Não há dados válidos de população e IDR para exibir neste gráfico.")
+        else:
+            st.plotly_chart(scatter, width="stretch")
     with col2:
         st.plotly_chart(charts.bar_distribution(model["race_population"], "Cor_Raca", percent=True, title="Composicao racial"), width="stretch")
     st.subheader("Municipios com maior diversidade")
@@ -311,7 +320,10 @@ def page_map(model):
     indicator = st.selectbox("Indicador", ["Populacao", "IDR", "Representatividade feminina", "Jovens", "Idosos"])
     fig = build_choropleth(indicators, indicator)
     if fig is None:
-        st.info("Mapa indisponivel neste ambiente. Instale geopandas e use a malha BA_bairros_CD2022 para visualizar bairros da Bahia.")
+        st.info(
+            "Não há malha geográfica disponível para os filtros selecionados. "
+            "Atualmente o projeto possui geometria detalhada de bairros da Bahia."
+        )
     else:
         st.plotly_chart(fig, width="stretch")
 

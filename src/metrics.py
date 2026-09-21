@@ -23,8 +23,8 @@ def calcular_idr(df: pd.DataFrame, nivel: str = "bairro") -> pd.DataFrame:
     grouped["proporcao"] = (
         grouped["valor"].astype("Float64").div(totals.astype("Float64")).where(totals > 0, 0)
     )
-    k = grouped[grouped["valor"] > 0].groupby(group_cols)["Cor_Raca"].nunique().rename("categorias")
-    simpson = grouped.groupby(group_cols)["proporcao"].apply(lambda s: 1 - np.square(s).sum())
+    k = grouped[grouped["valor"] > 0].groupby(group_cols, observed=True)["Cor_Raca"].nunique().rename("categorias")
+    simpson = grouped.groupby(group_cols, observed=True)["proporcao"].apply(lambda s: 1 - np.square(s).sum())
     result = pd.concat([simpson.rename("IDR"), k], axis=1).reset_index()
     result["IDR"] = np.where(
         result["categorias"] > 1,
@@ -83,7 +83,7 @@ def idade_media_estimada(df: pd.DataFrame, group_cols: list[str] | None = None) 
     group_cols = group_cols or []
     temp = df.copy()
     temp["peso_idade"] = temp["valor"] * temp["Faixa_Etaria"].map(config.AGE_MIDPOINT)
-    grouped = temp.groupby(group_cols, dropna=False).agg(valor=("valor", "sum"), peso_idade=("peso_idade", "sum"))
+    grouped = temp.groupby(group_cols, dropna=False, observed=True).agg(valor=("valor", "sum"), peso_idade=("peso_idade", "sum"))
     grouped["Idade_Media_Estimada"] = np.where(grouped["valor"] > 0, grouped["peso_idade"] / grouped["valor"], np.nan)
     return grouped.reset_index()
 
@@ -100,7 +100,7 @@ def ranking_jovens_pardos(race_age: pd.DataFrame) -> pd.DataFrame:
 
 def predominant_race(race_population: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
     grouped = race_population.groupby(group_cols + ["Cor_Raca"], dropna=False, observed=True)["valor"].sum(min_count=1).reset_index()
-    idx = grouped.sort_values("valor", ascending=False).groupby(group_cols).head(1).index
+    idx = grouped.sort_values("valor", ascending=False).groupby(group_cols, observed=True).head(1).index
     return grouped.loc[idx, group_cols + ["Cor_Raca"]].rename(columns={"Cor_Raca": "Grupo racial predominante"})
 
 

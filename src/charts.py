@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -79,8 +80,27 @@ def line_or_bar_age_by_race(race_age: pd.DataFrame):
 
 
 def scatter_diversity_population(idr_df: pd.DataFrame, label_col: str):
+    required = {"Populacao", "IDR", label_col}
+    if not required.issubset(idr_df.columns):
+        return None
+
+    # Plotly does not accept NA/inf in marker.size.  Keep the modeled data
+    # untouched and sanitize only the frame sent to the visualization.
+    plot_df = idr_df.copy()
+    plot_df["Populacao"] = pd.to_numeric(plot_df["Populacao"], errors="coerce")
+    plot_df["IDR"] = pd.to_numeric(plot_df["IDR"], errors="coerce")
+    plot_df[["Populacao", "IDR"]] = plot_df[["Populacao", "IDR"]].replace(
+        [np.inf, -np.inf], np.nan
+    )
+    plot_df = plot_df.dropna(subset=["Populacao", "IDR"])
+    plot_df = plot_df.loc[plot_df["Populacao"].gt(0)].copy()
+    if plot_df.empty:
+        return None
+    plot_df["Populacao"] = plot_df["Populacao"].astype("float64")
+    plot_df["IDR"] = plot_df["IDR"].astype("float64")
+
     fig = px.scatter(
-        idr_df,
+        plot_df,
         x="Populacao",
         y="IDR",
         hover_name=label_col,
