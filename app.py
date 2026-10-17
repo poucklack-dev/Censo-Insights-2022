@@ -26,7 +26,12 @@ from src.interactivity import (
 )
 from src.maps import build_choropleth, build_point_map
 from src.modeling import build_model
-from src.presentation import get_display_name, get_metric_help, presentation_frame
+from src.presentation import (
+    formatted_display_frame,
+    get_metric_help,
+    get_display_name,
+    presentation_frame,
+)
 from src.utils import br_number, br_percent
 
 
@@ -204,6 +209,10 @@ def metric_card(label: str, value: str, metric_key: str | None = None, tone: str
     card_key = metric_key or label.casefold().replace(" ", "-")
     with st.container(key=f"kpi-{tone}-{card_key}"):
         st.metric(label, value, help=get_metric_help(metric_key) if metric_key else None, border=True)
+
+
+def display_dataframe(df: pd.DataFrame, **kwargs):
+    st.dataframe(formatted_display_frame(df), **kwargs)
 
 
 PAGE_DESCRIPTIONS = {
@@ -414,7 +423,7 @@ def page_overview(model, filtros):
     with cols[3]:
         metric_card(
             "Índice de Diversidade Racial Médio",
-            br_number(k["IDR medio"], 3),
+            br_number(k["IDR medio"], 2),
             "IDR_MEDIO",
         )
     cols = st.columns(4, gap="large")
@@ -470,7 +479,7 @@ def page_municipios(model, filtros):
     table = merge_percentage_metric(table, responsibility_data, ["CD_MUN"], metrics.representatividade_feminina, "Representatividade feminina")
     table = merge_percentage_metric(table, age_data, ["CD_MUN"], metrics.proporcao_jovens, "Jovens")
     table = merge_percentage_metric(table, age_data, ["CD_MUN"], metrics.proporcao_idosos, "Idosos")
-    st.dataframe(
+    display_dataframe(
         presentation_frame(
             table,
             ["Posicao", "Municipio", "Populacao", "IDR", "Grupo racial predominante", "Representatividade feminina", "Jovens", "Idosos"],
@@ -480,7 +489,7 @@ def page_municipios(model, filtros):
     )
     if selected:
         bairros = model["bairro"][model["bairro"]["NM_MUN"].eq(selected)].sort_values("populacao_total", ascending=False)
-        st.dataframe(
+        display_dataframe(
             presentation_frame(bairros, ["NM_BAIRRO", "NM_MUN", "populacao_total", "AREA_KM2"]),
             width="stretch",
             hide_index=True,
@@ -504,7 +513,7 @@ def page_bairros(model, filtros):
     table = merge_percentage_metric(table, responsibility_data, group_cols, metrics.representatividade_feminina, "Representatividade feminina")
     table = merge_percentage_metric(table, age_data, group_cols, metrics.proporcao_jovens, "Jovens")
     table = merge_percentage_metric(table, age_data, group_cols, metrics.proporcao_idosos, "Idosos")
-    st.dataframe(
+    display_dataframe(
         presentation_frame(
             table,
             ["NM_BAIRRO", "NM_MUN", "Populacao", "IDR", "Representatividade feminina", "Jovens", "Idosos"],
@@ -533,7 +542,7 @@ def page_demography(model, filtros):
         .sum()
         .reset_index()
     )
-    st.dataframe(presentation_frame(age), width="stretch", hide_index=True)
+    display_dataframe(presentation_frame(age), width="stretch", hide_index=True)
 
 
 def page_households(model, filtros):
@@ -557,7 +566,7 @@ def page_households(model, filtros):
     with cols[2]:
         metric_card(
             "Moradores por Domicílio Ocupado",
-            br_number(summary["Media_Moradores"], 2),
+            br_number(summary["Media_Moradores"], 1),
         )
     with cols[3]:
         metric_card(
@@ -587,7 +596,7 @@ def page_households(model, filtros):
         width="stretch",
     )
     st.subheader("Perfil por Bairro")
-    st.dataframe(
+    display_dataframe(
         presentation_frame(
             by_neighborhood.head(100),
             [
@@ -679,7 +688,7 @@ def page_territory(model, filtros):
                 width="stretch",
             )
     st.subheader("Bairros por Densidade")
-    st.dataframe(
+    display_dataframe(
         presentation_frame(
             valid_density.sort_values("Densidade", ascending=False).head(100),
             ["NM_BAIRRO", "NM_MUN", "Populacao", "AREA_KM2", "Densidade"],
@@ -699,15 +708,19 @@ def page_diversity(model, filtros):
     idr_mun = metrics.calcular_idr(race_data, "municipio")
     col1, col2 = st.columns(2)
     with col1:
-        scatter = charts.scatter_diversity_population(idr_bairro, "NM_BAIRRO")
-        if scatter is None:
+        population_bands = charts.population_diversity_by_band(idr_bairro)
+        if population_bands is None:
             st.info("Não há dados válidos de população e diversidade racial para exibir neste gráfico.")
         else:
-            st.plotly_chart(scatter, width="stretch")
+            st.plotly_chart(population_bands, width="stretch")
+            st.caption(
+                "Cada barra mostra o IDR médio dos bairros daquela faixa populacional. "
+                "O número de bairros está indicado acima da barra; é uma comparação descritiva, não causal."
+            )
     with col2:
         st.plotly_chart(charts.bar_distribution(race_data, "Cor_Raca", percent=True, title="Composição Racial da População"), width="stretch")
     st.subheader("Municípios com Maior Diversidade Racial", help=get_metric_help("IDR"))
-    st.dataframe(
+    display_dataframe(
         presentation_frame(idr_mun, ["NM_MUN", "Populacao", "IDR"]),
         width="stretch",
         hide_index=True,
@@ -735,12 +748,12 @@ def page_responsibles(model, filtros):
     if rep.empty:
         st.info("Indicador indisponível com filtro de idade: não há cruzamento entre idade e sexo dos responsáveis.")
     else:
-        st.dataframe(presentation_frame(rep), width="stretch", hide_index=True)
+        display_dataframe(presentation_frame(rep), width="stretch", hide_index=True)
     st.subheader("Responsáveis Indígenas com 40 Anos ou Mais")
     if indig.empty:
         st.info("Indicador indisponível para os filtros selecionados porque as faixas publicadas para responsáveis não permitem esse cruzamento exato.")
     else:
-        st.dataframe(
+        display_dataframe(
             presentation_frame(indig, ["NM_BAIRRO", "NM_MUN", "Quantidade", "Total_Responsaveis", "Percentual"]),
             width="stretch",
             hide_index=True,
@@ -823,13 +836,13 @@ def page_map(model, filtros):
 def page_quality(profile, treatment_log, inconsistencies, dictionary):
     page_header("Qualidade dos Dados")
     st.subheader("Perfil das Tabelas")
-    st.dataframe(presentation_frame(profile), width="stretch", hide_index=True)
+    display_dataframe(presentation_frame(profile), width="stretch", hide_index=True)
     st.subheader("Tratamentos Registrados")
-    st.dataframe(presentation_frame(treatment_log), width="stretch", hide_index=True)
+    display_dataframe(presentation_frame(treatment_log), width="stretch", hide_index=True)
     st.subheader("Validações")
-    st.dataframe(presentation_frame(inconsistencies), width="stretch", hide_index=True)
+    display_dataframe(presentation_frame(inconsistencies), width="stretch", hide_index=True)
     st.subheader("Dicionário de Dados")
-    st.dataframe(
+    display_dataframe(
         presentation_frame(dictionary.head(300), hidden=["variavel_norm"]),
         width="stretch",
         hide_index=True,

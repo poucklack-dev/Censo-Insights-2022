@@ -3,6 +3,7 @@ import pandas as pd
 from src.presentation import (
     DISPLAY_NAMES,
     METRIC_HELP,
+    formatted_display_frame,
     get_display_name,
     get_metric_help,
     presentation_frame,
@@ -39,6 +40,30 @@ def test_presentation_frame_hides_columns_without_changing_rows():
     displayed = presentation_frame(source, hidden=["variavel_norm"])
     assert list(displayed.columns) == ["Bairro"]
     assert len(displayed) == len(source)
+
+
+def test_display_formatting_preserves_numeric_sorting_and_brazilian_separators():
+    source = pd.DataFrame(
+        {
+            "População": [999, 352_356],
+            "IDR": [0.7851212, 0.1],
+            "Participação na População (%)": [50.595952, 0.7],
+            "Área (km²)": [0.0014555, 12.34567],
+        }
+    )
+    displayed = formatted_display_frame(source)
+    assert pd.api.types.is_numeric_dtype(displayed.data["População"])
+    assert displayed.data.sort_values("População", ascending=False)["População"].tolist() == [
+        352_356,
+        999,
+    ]
+    html = displayed.to_html()
+    assert "352.356" in html
+    assert "0,79" in html
+    assert "50,6%" in html
+    assert "0,0015" in html
+    assert source.loc[0, "IDR"] == 0.7851212
+    assert source.loc[0, "Participação na População (%)"] == 50.595952
 
 
 def test_unknown_column_gets_readable_fallback():

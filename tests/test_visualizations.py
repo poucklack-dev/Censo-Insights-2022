@@ -7,23 +7,39 @@ import pytest
 from shapely.geometry import Polygon
 
 from src import maps
-from src.charts import scatter_diversity_population
+from src.maps import _formatted_hover_data
+from src.charts import bar_distribution, horizontal_ranking, population_diversity_by_band
 
 
 def _scatter_frame(population, idr):
     return pd.DataFrame(
-        {"NM_BAIRRO": ["A", "B", "C"], "Populacao": population, "IDR": idr}
+        {
+            "NM_BAIRRO": [f"Bairro {index + 1}" for index in range(len(population))],
+            "Populacao": population,
+            "IDR": idr,
+        }
     )
 
 
-def test_scatter_diversity_with_complete_data():
-    fig = scatter_diversity_population(_scatter_frame([10, 20, 30], [0.2, 0.5, 0.8]), "NM_BAIRRO")
+def test_population_diversity_chart_compares_mean_idr_by_population_band():
+    fig = population_diversity_by_band(
+        _scatter_frame([500, 2_000, 8_000, 30_000], [0.2, 0.4, 0.6, 0.8])
+    )
     assert fig is not None
-    assert list(fig.data[0].marker.size) == [10.0, 20.0, 30.0]
+    assert fig.data[0].type == "bar"
+    assert list(fig.data[0].x) == [
+        "Até 1.000",
+        "1.001–5.000",
+        "5.001–20.000",
+        "Acima de 20.000",
+    ]
+    assert list(fig.data[0].y) == [0.2, 0.4, 0.6, 0.8]
+    assert fig.layout.yaxis.range == (0, 1)
+    assert fig.data[0].hovertemplate is not None
 
 
 @pytest.mark.parametrize(
-    ("population", "idr", "expected"),
+    ("population", "idr", "expected_count"),
     [
         ([10, np.nan, 30], [0.2, 0.5, 0.8], 2),
         ([10, 20, 30], [0.2, np.nan, 0.8], 2),
@@ -31,25 +47,74 @@ def test_scatter_diversity_with_complete_data():
         ([10, np.inf, 30], [0.2, 0.5, -np.inf], 1),
     ],
 )
-def test_scatter_omits_values_invalid_only_for_plot(population, idr, expected):
+def test_population_diversity_chart_omits_invalid_values(population, idr, expected_count):
     source = _scatter_frame(population, idr)
     original = source.copy(deep=True)
-    fig = scatter_diversity_population(source, "NM_BAIRRO")
-    assert fig is not None
-    assert len(fig.data[0].x) == expected
+    fig = population_diversity_by_band(source)
+    if expected_count:
+        assert fig is not None
+        assert sum(
+            int(label.split("<br>")[1].split()[0].replace(".", ""))
+            for label in fig.data[0].text
+        ) == expected_count
+    else:
+        assert fig is None
     pd.testing.assert_frame_equal(source, original)
 
 
-def test_scatter_accepts_nullable_numeric_dtypes_and_empty_result():
+def test_population_diversity_chart_accepts_nullable_numeric_dtypes():
     frame = _scatter_frame(
         pd.Series([10, pd.NA, 30], dtype="Int64"),
         pd.Series([0.2, 0.5, pd.NA], dtype="Float64"),
     )
-    fig = scatter_diversity_population(frame, "NM_BAIRRO")
+    fig = population_diversity_by_band(frame)
     assert fig is not None
-    assert fig.data[0].x.dtype == np.dtype("float64")
-    assert fig.data[0].y.dtype == np.dtype("float64")
-    assert scatter_diversity_population(_scatter_frame([0, np.nan, 0], [0.1, 0.2, np.nan]), "NM_BAIRRO") is None
+    assert list(fig.data[0].y) == [0.2]
+    assert population_diversity_by_band(
+        _scatter_frame([0, np.nan, 0], [0.1, 0.2, np.nan])
+    ) is None
+
+
+def test_chart_labels_use_brazilian_number_separators_and_short_precision():
+    ranking = horizontal_ranking(
+        pd.DataFrame({"NM_BAIRRO": ["Centro"], "Populacao": [1_234_567]}),
+        "NM_BAIRRO",
+        "Populacao",
+        "Bairros mais populosos",
+    )
+    assert list(ranking.data[0].text) == ["1.234.567"]
+
+    diversity = horizontal_ranking(
+        pd.DataFrame({"NM_BAIRRO": ["Centro"], "IDR": [0.7851212]}),
+        "NM_BAIRRO",
+        "IDR",
+        "Maior diversidade",
+    )
+    assert list(diversity.data[0].text) == ["0,79"]
+
+    composition = bar_distribution(
+        pd.DataFrame({"Cor_Raca": ["Branca", "Parda"], "valor": [50.595952, 49.404048]}),
+        "Cor_Raca",
+        percent=True,
+        title="Composição",
+    )
+    labels = sorted(label for trace in composition.data for label in trace.text)
+    assert labels == ["49,4%", "50,6%"]
+
+
+def test_map_hover_values_are_rounded_and_grouped_for_display():
+    frame = pd.DataFrame(
+        {
+            "Populacao": [1_234_567],
+            "IDR": [0.7851212],
+            "Representatividade feminina": [50.595952],
+        }
+    )
+    displayed, hover_data, _ = _formatted_hover_data(frame)
+    assert displayed.loc[0, "Populacao_exibicao"] == "1.234.567"
+    assert displayed.loc[0, "IDR_exibicao"] == "0,79"
+    assert displayed.loc[0, "Representatividade feminina_exibicao"] == "50,6%"
+    assert hover_data["Populacao"] is False
 
 
 def _geodata():

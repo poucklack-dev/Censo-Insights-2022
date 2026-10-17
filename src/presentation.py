@@ -3,7 +3,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import pandas as pd
+from pandas.api.types import is_float_dtype, is_integer_dtype
 
+from .utils import br_number, br_percent
 
 DISPLAY_NAMES: dict[str, str] = {
     "CD_REGIAO": "Código da Região",
@@ -143,3 +145,46 @@ def presentation_frame(
     hidden_set = set(hidden)
     selected = [column for column in selected if column in df.columns and column not in hidden_set]
     return df.loc[:, selected].copy().rename(columns=get_display_name)
+
+
+def formatted_display_frame(df: pd.DataFrame) -> pd.io.formats.style.Styler:
+    """Format numeric values for display while preserving native sortable data."""
+    formatters = {}
+    for column in df.columns:
+        series = df[column]
+        if not (is_integer_dtype(series.dtype) or is_float_dtype(series.dtype)):
+            continue
+        normalized = column.casefold()
+        is_percent = (
+            "%" in column
+            or "percentual" in normalized
+            or "representatividade" in normalized
+        )
+        if is_integer_dtype(series.dtype):
+            formatters[column] = br_percent if is_percent else br_number
+        elif is_percent:
+            formatters[column] = br_percent
+        elif "idr" in normalized or "diversidade" in normalized:
+            formatters[column] = lambda value: br_number(value, 2)
+        elif "area" in normalized or "área" in normalized or "km²" in normalized:
+            formatters[column] = lambda value: br_number(value, 4)
+        elif any(
+            term in normalized
+            for term in (
+                "população",
+                "populacao",
+                "domicílio",
+                "domicilio",
+                "quantidade",
+                "total",
+                "bairros",
+                "municípios",
+                "municipios",
+                "posição",
+                "posicao",
+            )
+        ):
+            formatters[column] = br_number
+        else:
+            formatters[column] = lambda value: br_number(value, 1)
+    return df.style.format(formatters, na_rep="-")

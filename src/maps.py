@@ -6,17 +6,35 @@ import plotly.express as px
 
 from .data_loader import load_geodata, load_neighborhood_points
 from .presentation import DISPLAY_NAMES
+from .utils import br_number, br_percent
 
 
-HOVER_COLUMNS = [
-    "NM_MUN",
-    "NM_UF",
-    "Populacao",
-    "IDR",
-    "Representatividade feminina",
-    "Jovens",
-    "Idosos",
-]
+FORMATTED_HOVER_COLUMNS = {
+    "Populacao": lambda value: br_number(value),
+    "IDR": lambda value: br_number(value, 2),
+    "Representatividade feminina": br_percent,
+    "Jovens": br_percent,
+    "Idosos": br_percent,
+}
+
+
+def _formatted_hover_data(frame: pd.DataFrame):
+    result = frame.copy()
+    hover_data = {
+        column: True
+        for column in ("NM_MUN", "NM_UF")
+        if column in result.columns
+    }
+    labels = {}
+    for column, formatter in FORMATTED_HOVER_COLUMNS.items():
+        if column not in result.columns:
+            continue
+        formatted_column = f"{column}_exibicao"
+        result[formatted_column] = result[column].map(formatter)
+        hover_data[column] = False
+        hover_data[formatted_column] = True
+        labels[formatted_column] = DISPLAY_NAMES[column]
+    return result, hover_data, labels
 
 
 def _prepare_values(indicators: pd.DataFrame, indicator_col: str) -> pd.DataFrame | None:
@@ -50,22 +68,27 @@ def build_point_map(indicators: pd.DataFrame, indicator_col: str):
     merged = merged.dropna(subset=["LATITUDE", "LONGITUDE"])
     if merged.empty:
         return None
+    merged, hover_data, hover_labels = _formatted_hover_data(merged)
     fig = px.scatter_map(
         merged,
         lat="LATITUDE",
         lon="LONGITUDE",
         color=indicator_col,
         hover_name="NM_BAIRRO" if "NM_BAIRRO" in merged.columns else None,
-        hover_data=[col for col in HOVER_COLUMNS if col in merged.columns],
+        hover_data=hover_data,
         map_style="carto-darkmatter",
         center={"lat": -14.2, "lon": -51.9},
         zoom=3.1,
         opacity=0.78,
         template="plotly_dark",
-        labels=DISPLAY_NAMES,
+        labels={**DISPLAY_NAMES, **hover_labels},
     )
     fig.update_traces(marker={"size": 7})
-    fig.update_layout(margin=dict(l=0, r=0, t=20, b=0), height=660)
+    fig.update_layout(
+        margin=dict(l=0, r=0, t=20, b=0),
+        height=660,
+        separators=",.",
+    )
     return fig
 
 
@@ -106,6 +129,7 @@ def build_choropleth(indicators: pd.DataFrame, indicator_col: str):
         "CD_BAIRRO" not in feature.get("properties", {}) for feature in features
     ):
         return None
+    merged, hover_data, hover_labels = _formatted_hover_data(merged)
     fig = px.choropleth_map(
         merged,
         geojson=geojson,
@@ -113,13 +137,17 @@ def build_choropleth(indicators: pd.DataFrame, indicator_col: str):
         featureidkey="properties.CD_BAIRRO",
         color=indicator_col,
         hover_name="NM_BAIRRO",
-        hover_data=[col for col in HOVER_COLUMNS if col in merged.columns],
+        hover_data=hover_data,
         map_style="carto-darkmatter",
         center={"lat": -12.8, "lon": -41.7},
         zoom=5.2,
         opacity=0.72,
         template="plotly_dark",
-        labels=DISPLAY_NAMES,
+        labels={**DISPLAY_NAMES, **hover_labels},
     )
-    fig.update_layout(margin=dict(l=0, r=0, t=20, b=0), height=660)
+    fig.update_layout(
+        margin=dict(l=0, r=0, t=20, b=0),
+        height=660,
+        separators=",.",
+    )
     return fig
