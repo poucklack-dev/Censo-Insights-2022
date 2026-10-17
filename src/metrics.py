@@ -44,6 +44,106 @@ def population_total(df: pd.DataFrame) -> float:
     return float(df["valor"].sum()) if "valor" in df.columns else 0.0
 
 
+def household_summary(
+    df: pd.DataFrame, group_cols: list[str] | None = None
+) -> pd.DataFrame:
+    """Aggregate household counts and household-weighted averages."""
+    group_cols = group_cols or []
+    if df.empty:
+        return pd.DataFrame(
+            columns=group_cols
+            + ["Domicilios", "Domicilios_Ocupados", "Media_Moradores", "DPO_Imputados"]
+        )
+
+    work = df.copy()
+    work["_moradores_estimados"] = (
+        work["media_moradores_dpo"] * work["domicilios_ocupados"]
+    )
+    work["_domicilios_com_media"] = work["domicilios_ocupados"].where(
+        work["media_moradores_dpo"].notna()
+    )
+    work["_domicilios_imputados"] = (
+        work["pct_dpo_imputados"] * work["domicilios_ocupados"]
+    )
+    work["_domicilios_com_imputacao"] = work["domicilios_ocupados"].where(
+        work["pct_dpo_imputados"].notna()
+    )
+    aggregate_columns = [
+        "domicilios_total",
+        "domicilios_ocupados",
+        "_moradores_estimados",
+        "_domicilios_com_media",
+        "_domicilios_imputados",
+        "_domicilios_com_imputacao",
+    ]
+    if group_cols:
+        result = (
+            work.groupby(group_cols, dropna=False, observed=True)[aggregate_columns]
+            .sum(min_count=1)
+            .reset_index()
+        )
+    else:
+        result = work[aggregate_columns].sum(min_count=1).to_frame().T
+
+    result = result.rename(
+        columns={
+            "domicilios_total": "Domicilios",
+            "domicilios_ocupados": "Domicilios_Ocupados",
+        }
+    )
+    result["Media_Moradores"] = (
+        result["_moradores_estimados"] / result["_domicilios_com_media"]
+    ).where(result["_domicilios_com_media"].gt(0))
+    result["DPO_Imputados"] = (
+        result["_domicilios_imputados"] / result["_domicilios_com_imputacao"] * 100
+    ).where(result["_domicilios_com_imputacao"].gt(0))
+    return result.drop(
+        columns=[
+            "_moradores_estimados",
+            "_domicilios_com_media",
+            "_domicilios_imputados",
+            "_domicilios_com_imputacao",
+        ]
+    )
+
+
+def population_density(
+    df: pd.DataFrame, group_cols: list[str] | None = None
+) -> pd.DataFrame:
+    """Calculate residents per square kilometer over the available area."""
+    group_cols = group_cols or []
+    columns = group_cols + ["Populacao", "AREA_KM2", "Densidade"]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+
+    valid = df.loc[df["populacao_total"].notna() & df["AREA_KM2"].gt(0)]
+    if valid.empty:
+        return pd.DataFrame(columns=columns)
+
+    if group_cols:
+        result = (
+            valid.groupby(group_cols, dropna=False, observed=True)
+            .agg(
+                Populacao=("populacao_total", lambda values: values.sum(min_count=1)),
+                AREA_KM2=("AREA_KM2", lambda values: values.sum(min_count=1)),
+            )
+            .reset_index()
+        )
+    else:
+        result = pd.DataFrame(
+            [
+                {
+                    "Populacao": valid["populacao_total"].sum(min_count=1),
+                    "AREA_KM2": valid["AREA_KM2"].sum(min_count=1),
+                }
+            ]
+        )
+    result["Densidade"] = (
+        result["Populacao"] / result["AREA_KM2"]
+    ).where(result["AREA_KM2"].gt(0))
+    return result
+
+
 def percent_by_group(df: pd.DataFrame, group_cols: list[str], mask: pd.Series) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=group_cols + ["Total", "Quantidade", "Percentual"])

@@ -1,4 +1,4 @@
-# Dashboard Analytics Censo 2022 (IBGE)
+# Dashboard Analytics Censo 2022
 
 Aplicacao analitica em Python para explorar agregados do Censo 2022 por bairros, com ETL, modelagem, indicadores, rankings, storytelling, mapa quando houver geometria e exportacao de resultados.
 
@@ -115,6 +115,8 @@ Paginas incluidas:
 - Municipios
 - Bairros
 - Demografia
+- Domicilios
+- Territorio e Densidade
 - Diversidade Racial
 - Responsaveis pelo Domicilio
 - Mapa

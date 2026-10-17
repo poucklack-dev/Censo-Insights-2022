@@ -1,7 +1,61 @@
 import pandas as pd
+import pytest
 
 from src.filters import filter_frame
-from src.metrics import calcular_idr, proporcao_idosos, proporcao_jovens, representatividade_feminina
+from src.metrics import (
+    calcular_idr,
+    household_summary,
+    population_density,
+    proporcao_idosos,
+    proporcao_jovens,
+    representatividade_feminina,
+)
+
+
+def test_household_summary_uses_occupied_households_as_weights():
+    df = pd.DataFrame(
+        {
+            "domicilios_total": [10, 20],
+            "domicilios_ocupados": [2, 8],
+            "media_moradores_dpo": [2.0, 4.0],
+            "pct_dpo_imputados": [0.1, 0.25],
+        }
+    )
+    result = household_summary(df).iloc[0]
+    assert result["Domicilios"] == 30
+    assert result["Domicilios_Ocupados"] == 10
+    assert result["Media_Moradores"] == 3.6
+    assert result["DPO_Imputados"] == pytest.approx(22)
+
+
+def test_household_summary_excludes_missing_values_from_weight_denominators():
+    df = pd.DataFrame(
+        {
+            "domicilios_total": [10, 20],
+            "domicilios_ocupados": [2, 8],
+            "media_moradores_dpo": [2.0, pd.NA],
+            "pct_dpo_imputados": [pd.NA, 0.25],
+        }
+    )
+    result = household_summary(df).iloc[0]
+    assert result["Media_Moradores"] == 2
+    assert result["DPO_Imputados"] == 25
+
+
+def test_population_density_aggregates_population_and_area_before_dividing():
+    df = pd.DataFrame(
+        {
+            "CD_MUN": ["1", "1", "2", "3"],
+            "NM_MUN": ["A", "A", "B", "C"],
+            "populacao_total": [100, 300, 500, pd.NA],
+            "AREA_KM2": [2.0, 3.0, 0.0, 7.0],
+        }
+    )
+    result = population_density(df, ["CD_MUN", "NM_MUN"]).set_index("CD_MUN")
+    assert result.loc["1", "Populacao"] == 400
+    assert result.loc["1", "AREA_KM2"] == 5
+    assert result.loc["1", "Densidade"] == 80
+    assert list(result.index) == ["1"]
 
 
 def test_calcular_idr_normalized_balanced_distribution():
