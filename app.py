@@ -13,7 +13,6 @@ from src.data_loader import (
     load_raw_tables,
     processed_model_available,
 )
-from src.exports import csv_bytes, excel_report, pdf_insights
 from src.filters import filter_frame, sorted_options
 from src.insights import all_insights
 from src.interactivity import (
@@ -227,7 +226,6 @@ PAGE_DESCRIPTIONS = {
     "Mapa": "Visualize indicadores por bairro usando as referências geográficas disponíveis.",
     "Análises e Narrativa": "As análises são recalculadas automaticamente conforme os filtros de UF, município, bairro, sexo, faixa etária e cor ou raça.",
     "Qualidade dos Dados": "Consulte o perfil, os tratamentos e as validações das bases.",
-    "Exportação": "Baixe os dados e relatórios disponíveis para análise.",
     "Sobre o Projeto": "Conheça as fontes, escolhas metodológicas e escopo desta aplicação.",
 }
 
@@ -328,7 +326,6 @@ def sidebar_filters(model: dict[str, pd.DataFrame]) -> dict:
             "Mapa",
             "Análises e Narrativa",
             "Qualidade dos Dados",
-            "Exportação",
             "Sobre o Projeto",
         ],
         label_visibility="collapsed",
@@ -849,34 +846,6 @@ def page_quality(profile, treatment_log, inconsistencies, dictionary):
     )
 
 
-def page_exports(model, filtros):
-    page_header("Exportação")
-    idr_mun = metrics.ranking_municipios_diversidade(model["race_population"])
-    idr_bairro = metrics.calcular_idr(model["race_population"], "bairro")
-    insights = all_insights(model, filtros)
-    sheets = {
-        "Resumo": presentation_frame(pd.DataFrame([summary_kpis(model, filtros)])),
-        "Municípios": presentation_frame(idr_mun),
-        "Bairros": presentation_frame(idr_bairro),
-        "Cor ou Raça": presentation_frame(model["race_population"]),
-        "Sexo": presentation_frame(model["demo_age_sex"]),
-        "Faixa Etária": presentation_frame(model["demo_age"]),
-        "Responsáveis": presentation_frame(model["responsible_race_sex"]),
-    }
-    csv_columns = [
-        "CD_BAIRRO", "NM_BAIRRO", "CD_MUN", "NM_MUN", "CD_UF", "NM_UF",
-        "populacao_total", "domicilios_total", "domicilios_ocupados", "AREA_KM2",
-    ]
-    st.download_button(
-        "Baixar dados filtrados em CSV",
-        csv_bytes(presentation_frame(model["bairro"], csv_columns)),
-        "dados_filtrados.csv",
-        "text/csv",
-    )
-    st.download_button("Baixar relatório Excel", excel_report(sheets), "relatorio_analises.xlsx")
-    st.download_button("Baixar análises em PDF", pdf_insights("Análises do Censo 2022", insights), "analises.pdf", "application/pdf")
-
-
 def page_storytelling(model, filtros):
     page_header("Análises e Narrativa")
     st.markdown(
@@ -938,8 +907,6 @@ def main():
         page_storytelling(current, filtros)
     elif page == "Qualidade dos Dados":
         page_quality(profile, treatment_log, inconsistencies, dictionary)
-    elif page == "Exportação":
-        page_exports(current, filtros)
     else:
         page_about()
 
